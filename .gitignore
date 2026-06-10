@@ -1,1 +1,11 @@
+# Mengabaikan file data berukuran masif
+*.csv
+*.parquet
 
+# Mengabaikan virtual environment
+airflow-env/
+
+# Mengabaikan file sistem dan cache Python
+.DS_Store
+__pycache__/
+*.pyc
