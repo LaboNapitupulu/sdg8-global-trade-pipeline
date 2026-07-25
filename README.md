@@ -2,6 +2,8 @@
 
 A full-stack data engineering pipeline and interactive dashboard analyzing global commodity trade statistics (1990-present) to support UN Sustainable Development Goal 8.
 
+**🌍 [Live Dashboard on Vercel](https://sdg8-global-trade-pipeline-bkef3fx9x-nowell.vercel.app/)** | **📊 [UN Comtrade Dataset (Kaggle)](https://www.kaggle.com/datasets/unitednations/global-commodity-trade-statistics)**
+
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square&logo=python)
 ![Apache Spark](https://img.shields.io/badge/Apache_Spark-Data_Processing-E25A1C?style=flat-square&logo=apache-spark)
 ![Pandas](https://img.shields.io/badge/Pandas-ETL-150458?style=flat-square&logo=pandas)
