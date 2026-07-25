@@ -1,160 +1,81 @@
-# 🌍 Analisis Data Perdagangan Global (SDG 8): Pipeline Big Data dengan Arsitektur Medallion
+# SDG 8 Global Trade Pipeline: Decent Work & Economic Growth
 
-Proyek *Data Engineering* berskala *produksi* yang dirancang untuk memproses, membersihkan, dan menganalisis lebih dari **8,2 Juta baris** data transaksi perdagangan global. Proyek ini bertujuan untuk memantau indikator ekonomi makro yang sejalan dengan **SDG 8 (Pekerjaan Layak dan Pertumbuhan Ekonomi)**.
+A full-stack data engineering pipeline and interactive dashboard analyzing global commodity trade statistics (1990-present) to support UN Sustainable Development Goal 8.
 
-Sistem ini mengimplementasikan **Arsitektur Medallion (Bronze, Silver, Gold)** yang berjalan di atas klaster terdistribusi (Dockerized) menggunakan Apache Hadoop (HDFS), Apache Spark, Apache Hive, dan divisualisasikan secara *real-time* melalui Apache Superset.
-
----
-
-## 🏗️ Arsitektur Medallion (Alur Data)
-
-Pipeline ini memproses data mentah yang masif dengan membaginya ke dalam tiga lapisan analitik terstruktur:
-
-1. **🥉 Bronze Layer (Ingesti Mentah):** Menyerap data CSV perdagangan global mentah ke dalam sistem penyimpanan terdistribusi HDFS (*Hadoop Distributed File System*) tanpa modifikasi apa pun.
-2. **🥈 Silver Layer (Pembersihan & Jaminan Kualitas):** Menggunakan **Apache Spark** untuk melakukan pembersihan data berbasis aturan yang ketat:
-   - Memfilter transaksi hanya untuk tipe *Export*.
-   - Menghapus baris yang memiliki anomali/nilai kosong (*null*) pada kolom krusial seperti nilai dolar (`trade_usd`) dan volume fisik (`weight_kg`).
-   - Menstandardisasi tipografi nama negara (*Title Case*).
-   - Mencatat anomali ke dalam tabel metadata kualitas data.
-3. **🥇 Gold Layer (Agregasi Bisnis):** Menghitung agregasi tingkat bisnis (tren perdagangan global berdasarkan negara, tahun, dan jenis komoditas). Hasil akhirnya disimpan di **Apache Hive** menggunakan format **Parquet** yang sangat terkompresi dan efisien untuk di-kueri.
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square&logo=python)
+![Apache Spark](https://img.shields.io/badge/Apache_Spark-Data_Processing-E25A1C?style=flat-square&logo=apache-spark)
+![Pandas](https://img.shields.io/badge/Pandas-ETL-150458?style=flat-square&logo=pandas)
+![Flask](https://img.shields.io/badge/Flask-API-000000?style=flat-square&logo=flask)
+![React](https://img.shields.io/badge/React-Vite-61DAFB?style=flat-square&logo=react)
+![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?style=flat-square&logo=sqlite)
 
 ---
 
-## 🛠️ Teknologi & Ekosistem yang Digunakan
+## Project Overview
 
-- **Core Data Engine:** Apache Spark 3.0.0 (PySpark)
-- **Data Lake Storage:** Apache Hadoop HDFS 2.7.4
-- **Metastore & Query Layer:** Apache Hive 2.3.7 (HiveServer2 & PostgreSQL Metastore)
-- **Data Visualization:** Apache Superset
-- **Infrastructure & Orchestration:** Docker & Docker-Compose
-- **Baseline Engine (Untuk Perbandingan):** Python Pandas
+This project analyzes the UN Global Commodity Trade Statistics dataset to uncover trends, growth metrics, and geopolitical trade dynamics. It features a Medallion Architecture (Bronze -> Silver -> Gold) data pipeline built with Apache Spark and Pandas, exposing insights through a lightning-fast Flask API, and visualized in a modern, interactive React dashboard.
 
 ---
 
-## 📂 Struktur Repositori
+## Core Features
 
-```text
-sdg8-global-trade-pipeline/
-│
-├── src/
-│   ├── etl_medallion_spark.py    # Skrip utama pipeline terdistribusi (PySpark)
-│   ├── etl_medallion_pandas.py   # Skrip pembanding single-thread (Pandas)
-│   └── cek_metrik.py             # Utilitas ekstraksi log kualitas data
-│
-├── assets/
-│   └── dashboard_superset.png    # Tangkapan layar hasil visualisasi
-│
-├── dashboard/                    # Aplikasi Web Dashboard (Decoupled Architecture)
-│   ├── backend/                  # REST API Server (Python Flask)
-│   └── frontend/                 # UI Modern (ReactJS + Vite + Recharts)
-│
-├── data/                         # Direktori data mentah (CSV di-ignore oleh Git)
-│
-├── docker-compose.yml            # Konfigurasi klaster Big Data
-├── .gitignore                    # Pengecualian file berukuran besar
-└── README.md                     # Dokumentasi proyek ini
-
-```
+- **Interactive Global Map:** A zoomable, drag-able world map highlighting trade volumes per country using a dynamic heatmap.
+- **Advanced Data Pipeline:** Implements the Medallion Architecture. Raw CSV data is ingested, cleaned, and aggregated into highly optimized `.parquet` and `.db` formats.
+- **Exploded 3D Pie Charts:** Analyzes category distributions without visual clutter, solving common z-fighting issues in web visualizations.
+- **Real-Time Analytics Dashboard:** A responsive, dark-mode React UI that fetches pre-computed data from the Flask API instantly.
+- **Vercel Ready:** Architected to be deployed directly to Vercel as a serverless monorepo (Frontend Vite + Backend Python).
 
 ---
 
-## 📊 Hasil Eksperimen & Benchmark Performa
+## Technical Stack
 
-### 1. Matriks Performa Komputasi (Pandas vs Spark)
-
-Tabel di bawah ini menunjukkan perbandingan *benchmark* nyata antara menjalankan skrip Python *single-threaded* (Pandas) melawan *Distributed Computing Framework* (Apache Spark Cluster):
-
-| Metrik | Pandas (Baseline - Single Node) | Apache Spark (Distributed Cluster) |
-| --- | --- | --- |
-| **Throughput Ingesti** | 95.963 baris/dtk | **68.021 baris/dtk** |
-| **Latensi End-to-End** | 85,72 detik | **120,94 detik (~2 menit)** |
-| **Format Penyimpanan Output** | Parquet (Lokal) | **Parquet (HDFS / Apache Hive)** |
-| **Kemampuan Scale-out** | ❌ Tidak (Terbatas oleh RAM laptop) | ✅ **Ya (Linearly scalable antar node)** |
-
-> 💡 **Engineering Insight (The Spark Overhead Paradox):** > Meskipun pada skala data 1,8 GB (8,2 juta baris) Pandas mencatat waktu eksekusi yang sedikit lebih cepat karena tidak ada biaya birokrasi di dalam RAM utama (zero-overhead), Pandas sepenuhnya dibatasi oleh *bottleneck* memori perangkat. Sebaliknya, Apache Spark melakukan inisialisasi *Java Virtual Machine* (JVM) dan pemisahan blok (partitioning) di HDFS. Spark menjamin bahwa bahkan jika data bertambah menjadi **100 GB atau 1 Terabyte**, klaster akan memprosesnya dengan mulus, di saat Pandas akan langsung mengalami *crash* karena *Out-of-Memory* (OOM).
-
-### 2. Metrik Kualitas Data (Silver Layer Log)
-
-Sistem audit otomatis menangkap metrik berikut selama fase uji kualitas data (Data Quality Check) di dalam *runtime* eksekusi Spark:
-
-| Metrik Kualitas Data | Nilai |
-| --- | --- |
-| **Total Transaksi Ekspor Mentah (Bronze)** | 3.223.315 baris |
-| **Transaksi Lolos Uji Kualitas (Silver Layer)** | 3.171.052 baris |
-| **Transaksi Dihapus (Anomali/Kosong)** | 52.263 baris |
-| **Persentase Data Hilang (%)** | **1,62%** |
+- **Data Processing:** Apache Spark (PySpark), Pandas
+- **Backend API:** Python, Flask, SQLite
+- **Frontend:** React, Vite, Recharts, React Simple Maps, React Google Charts
+- **Deployment:** Vercel (Serverless Functions)
 
 ---
 
-## 🚀 Cara Menjalankan Proyek
+## Getting Started
 
-### Prasyarat
+### Prerequisites
+- Python 3.9+
+- Node.js 18+
 
-* Docker & Docker-Compose telah terinstal.
-* Lingkungan Python 3.6+ dengan pustaka `pyspark`, `pandas`, dan `pyarrow`.
+### Installation & Setup
 
-### Langkah 1: Nyalakan Klaster Big Data
-
-Jalankan perintah berikut di terminal untuk menghidupkan seluruh layanan Hadoop, Spark, dan Superset:
-
+**1. Clone the repository:**
 ```bash
-docker-compose up -d
-docker start superset
-
+git clone https://github.com/LaboNapitupulu/sdg8-global-trade-pipeline.git
+cd sdg8-global-trade-pipeline
 ```
 
-*(Tunggu sekitar 3-5 menit agar HiveServer2 selesai melakukan proses booting dan membuka port 10000).*
-
-### Langkah 2: Eksekusi Pipeline PySpark Terdistribusi
-
-Salin skrip ke dalam mesin *Master* Spark dan eksekusi tugasnya:
-
+**2. Process the Data (ETL):**
+Ensure your raw UN Comtrade dataset (`commodity_trade_statistics_data.csv`) is placed in the `data/` directory. Run the pipeline to generate Gold data and the SQLite database.
 ```bash
-# Salin skrip ke container Spark Master
-docker cp src/etl_medallion_spark.py spark-master:/app/
-
-# Submit Job ke klaster Spark
-docker exec -it spark-master /spark/bin/spark-submit --master local[*] /app/etl_medallion_spark.py
-
+python src/etl_medallion_pandas.py
+python dashboard/backend/data_pipeline.py
 ```
 
-### Langkah 3: Verifikasi Data di Apache Hive
-
-Anda dapat memverifikasi log kualitas data langsung dari terminal (tanpa membuka UI) dengan menembak *database* Hive:
-
-```bash
-docker exec -it hive-server hive -e "SELECT * FROM trade_db.gold_data_quality;"
-
-```
-
-### Langkah 4: Menjalankan Dashboard Modern (ReactJS + Python API)
-
-Sebagai alternatif ringan dan modern untuk Apache Superset, kami menyediakan *dashboard* kustom berbasis **ReactJS (Vite)** di bagian antarmuka dan **Python (Flask)** di bagian API.
-
-**Terminal 1: Jalankan Backend API (Python)**
+**3. Start the Backend API:**
 ```bash
 cd dashboard/backend
 pip install -r requirements.txt
-python app.py
+flask run --port=5000
 ```
-*(API akan berjalan di port 5000)*
 
-**Terminal 2: Jalankan Frontend UI (ReactJS)**
+**4. Launch the Frontend Dashboard:**
+Open a new terminal window.
 ```bash
 cd dashboard/frontend
 npm install
 npm run dev
 ```
-*(Buka tautan localhost yang muncul di terminal untuk melihat UI Dashboard yang interaktif).*
+
+Open `http://localhost:5173` in your browser.
 
 ---
 
-## 📈 Visualisasi Dashboard Eksekutif
+## Vercel Deployment
 
-Tabel bersih yang dihasilkan di *Gold Layer* Apache Hive dihubungkan melalui *driver* **PyHive** (Port `10000`) secara langsung ke **Apache Superset**. Ini membuka pintu bagi pembuatan *dashboard* eksekutif interaktif yang merangkum:
-
-* Total Nilai Ekspor Makro Ekonomi (Tren Triliunan USD).
-* Total Volume Fisik Perdagangan (Triliunan KG).
-* Top 10 Negara Pengekspor Terkuat di Dunia (Pendorong SDG 8).
-* Komoditas Global dengan Permintaan Tertinggi.
-
+This project includes a native `vercel.json` configuration for zero-config deployments. Simply import this repository into Vercel, leave all settings as default, and Vercel will automatically build the React frontend and deploy the Flask API as Serverless Functions.
