@@ -9,3 +9,13 @@ airflow-env/
 .DS_Store
 __pycache__/
 *.pyc
+
+# Mengabaikan environment variables (berisi kredensial)
+.env
+.env.local
+
+# Mengabaikan node_modules
+node_modules/
+
+# Mengabaikan file build
+dist/

@@ -44,6 +44,12 @@ sdg8-global-trade-pipeline/
 ├── assets/
 │   └── dashboard_superset.png    # Tangkapan layar hasil visualisasi
 │
+├── dashboard/                    # Aplikasi Web Dashboard (Decoupled Architecture)
+│   ├── backend/                  # REST API Server (Python Flask)
+│   └── frontend/                 # UI Modern (ReactJS + Vite + Recharts)
+│
+├── data/                         # Direktori data mentah (CSV di-ignore oleh Git)
+│
 ├── docker-compose.yml            # Konfigurasi klaster Big Data
 ├── .gitignore                    # Pengecualian file berukuran besar
 └── README.md                     # Dokumentasi proyek ini
@@ -120,6 +126,26 @@ Anda dapat memverifikasi log kualitas data langsung dari terminal (tanpa membuka
 docker exec -it hive-server hive -e "SELECT * FROM trade_db.gold_data_quality;"
 
 ```
+
+### Langkah 4: Menjalankan Dashboard Modern (ReactJS + Python API)
+
+Sebagai alternatif ringan dan modern untuk Apache Superset, kami menyediakan *dashboard* kustom berbasis **ReactJS (Vite)** di bagian antarmuka dan **Python (Flask)** di bagian API.
+
+**Terminal 1: Jalankan Backend API (Python)**
+```bash
+cd dashboard/backend
+pip install -r requirements.txt
+python app.py
+```
+*(API akan berjalan di port 5000)*
+
+**Terminal 2: Jalankan Frontend UI (ReactJS)**
+```bash
+cd dashboard/frontend
+npm install
+npm run dev
+```
+*(Buka tautan localhost yang muncul di terminal untuk melihat UI Dashboard yang interaktif).*
 
 ---
 
