@@ -20,8 +20,14 @@ const isProd = import.meta.env.PROD;
 const API_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:5000/api');
 
 const CHART_COLORS = [
-  '#6366f1', '#3b82f6', '#0ea5e9', '#06b6d4',
-  '#14b8a6', '#10b981', '#8b5cf6', '#a855f7'
+  '#00f0ff', /* Electric Cyan */
+  '#b026ff', /* Neon Violet */
+  '#00ff9d', /* Cyber Green */
+  '#ff0055', /* Hot Pink */
+  '#facc15', /* Cyber Yellow */
+  '#3b82f6', /* Blue 500 */
+  '#d946ef', /* Fuchsia */
+  '#0ea5e9'  /* Sky */
 ];
 
 // --- Sidebar ---
