@@ -19,70 +19,85 @@ import './index.css';
 const isProd = import.meta.env.PROD;
 const API_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:5000/api');
 
+// Editorial palette — hand-curated, no AI neon
 const CHART_COLORS = [
-  '#00f0ff', /* Electric Cyan */
-  '#b026ff', /* Neon Violet */
-  '#00ff9d', /* Cyber Green */
-  '#ff0055', /* Hot Pink */
-  '#facc15', /* Cyber Yellow */
-  '#3b82f6', /* Blue 500 */
-  '#d946ef', /* Fuchsia */
-  '#0ea5e9'  /* Sky */
+  '#c8a96e', /* Warm Gold */
+  '#7a9e8e', /* Sage Teal */
+  '#c87b6e', /* Terracotta */
+  '#8b9eb5', /* Steel Blue */
+  '#b89cc8', /* Dusty Violet */
+  '#a8b87a', /* Olive */
+  '#c8a07a', /* Warm Amber */
+  '#7a8ec8'  /* Muted Indigo */
 ];
 
 // --- Sidebar ---
-const Sidebar = ({ activeTab, setActiveTab }) => {
+const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }) => {
   const navItems = [
     { id: 'overview',     icon: LayoutDashboard, label: 'Overview' },
-    { id: 'geopolitics',  icon: Globe,            label: 'Geopolitics' },
+    { id: 'geopolitics',  icon: Globe,            label: 'Trade Map' },
     { id: 'commodities',  icon: Package,          label: 'Commodities' },
   ];
   const bottomItems = [
     { id: 'datasources',  icon: Database,         label: 'Data Sources' },
-    { id: 'settings',     icon: Settings,         label: 'Settings' },
+    { id: 'settings',     icon: Settings,         label: 'About' },
   ];
 
+  const handleNav = (e, id) => {
+    e.preventDefault();
+    setActiveTab(id);
+    onClose();
+  };
+
   return (
-    <aside className="sidebar">
-      <div className="sidebar-brand">
-        <div className="brand-icon">
-          <Activity size={20} className="text-indigo" />
+    <>
+      <div
+        className={`sidebar-overlay ${isOpen ? 'active' : ''}`}
+        onClick={onClose}
+      />
+      <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+        <div className="sidebar-brand">
+          <div className="brand-icon">
+            <Activity size={14} />
+          </div>
+          <span className="brand-text">UN Trade<br/>Analytics</span>
         </div>
-        <span className="brand-text">UN Trade Data</span>
-      </div>
-      <nav className="sidebar-nav">
-        {navItems.map(({ id, icon: Icon, label }) => (
-          <a
-            key={id}
-            href="#"
-            onClick={(e) => { e.preventDefault(); setActiveTab(id); }}
-            className={`nav-item ${activeTab === id ? 'active' : ''}`}
-          >
-            <Icon size={18} />
-            {label}
-          </a>
-        ))}
-        <div className="nav-divider"></div>
-        {bottomItems.map(({ id, icon: Icon, label }) => (
-          <a
-            key={id}
-            href="#"
-            onClick={(e) => { e.preventDefault(); setActiveTab(id); }}
-            className={`nav-item ${activeTab === id ? 'active' : ''}`}
-          >
-            <Icon size={18} />
-            {label}
-          </a>
-        ))}
-      </nav>
-      <div className="sidebar-user">
-        <div className="avatar">SD</div>
-        <div className="user-info">
-          <span className="user-name">SDG 8 Analyst</span>
-          <span className="user-role">Enterprise Plan</span>
+        <nav className="sidebar-nav">
+          <div className="nav-section-label">Analytics</div>
+          {navItems.map(({ id, icon: Icon, label }) => (
+            <a
+              key={id}
+              href="#"
+              onClick={(e) => handleNav(e, id)}
+              className={`nav-item ${activeTab === id ? 'active' : ''}`}
+            >
+              <Icon size={15} />
+              {label}
+            </a>
+          ))}
+          <div className="nav-divider" />
+          <div className="nav-section-label">Reference</div>
+          {bottomItems.map(({ id, icon: Icon, label }) => (
+            <a
+              key={id}
+              href="#"
+              onClick={(e) => handleNav(e, id)}
+              className={`nav-item ${activeTab === id ? 'active' : ''}`}
+            >
+              <Icon size={15} />
+              {label}
+            </a>
+          ))}
+        </nav>
+        <div className="sidebar-footer">
+          <div className="sidebar-footer-text">
+            SDG 8 Dashboard<br/>
+            UN Comtrade · 1988–2016<br/>
+            Big Data Engineering
+          </div>
         </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 };
 
@@ -175,21 +190,21 @@ const OverviewTab = ({ yearChartData, pieData }) => {
             <AreaChart data={yearChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="colorExport" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#c8a96e" stopOpacity={0.18} />
+                  <stop offset="95%" stopColor="#c8a96e" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="colorImport" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#14b8a6" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#7a9e8e" stopOpacity={0.18} />
+                  <stop offset="95%" stopColor="#7a9e8e" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-              <XAxis dataKey="name" stroke="#71717a" fontSize={12} tickLine={false} axisLine={false} dy={10} />
-              <YAxis stroke="#71717a" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} />
+              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" vertical={false} />
+              <XAxis dataKey="name" stroke="#4a4540" fontSize={11} tickLine={false} axisLine={false} dy={10} />
+              <YAxis stroke="#4a4540" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}B`} />
               <Tooltip content={<CustomTooltip />} />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', color: '#a1a1aa', marginTop: '10px' }} />
-              <Area type="monotone" dataKey="Export" stroke="#6366f1" strokeWidth={2} fillOpacity={1} fill="url(#colorExport)" />
-              <Area type="monotone" dataKey="Import" stroke="#14b8a6" strokeWidth={2} fillOpacity={1} fill="url(#colorImport)" />
+              <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', color: '#8a8580', marginTop: '12px', letterSpacing: '0.04em' }} />
+              <Area type="monotone" dataKey="Export" stroke="#c8a96e" strokeWidth={2} fillOpacity={1} fill="url(#colorExport)" dot={false} />
+              <Area type="monotone" dataKey="Import" stroke="#7a9e8e" strokeWidth={2} fillOpacity={1} fill="url(#colorImport)" dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -225,17 +240,20 @@ const GeopoliticsTab = ({ allCountriesTrade }) => {
   const values = Object.values(allCountriesTrade);
   const maxTrade = values.length > 0 ? Math.max(...values) : 1;
   const colorScale = scaleLinear()
-    .domain([0, maxTrade])
-    .range(["#e0e7ff", "#1e1b4b"]);
+    .domain([0, maxTrade * 0.25, maxTrade])
+    .range(["#1e1a14", "#8c6a38", "#c8a96e"]);
 
   return (
     <div className="charts-grid">
       <div className="chart-panel wide-panel" style={{ position: "relative" }}>
         <div className="panel-header">
-          <h2>Global Export Map</h2>
-          <span className="badge">Zoomable Heatmap</span>
+          <div className="panel-header-left">
+            <h2>Global Export Heatmap</h2>
+            <p className="panel-subtitle">Cumulative trade value by country · 1988–2016</p>
+          </div>
+          <span className="badge">Zoomable</span>
         </div>
-        <div className="chart-wrapper" style={{ height: '600px', overflow: 'hidden', cursor: 'grab', backgroundColor: '#09090b', borderRadius: '8px' }}>
+        <div className="chart-wrapper" style={{ height: '580px', overflow: 'hidden', cursor: 'grab', backgroundColor: '#0d0d0d', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
           {Object.keys(allCountriesTrade).length > 0 ? (
             <ComposableMap
               projectionConfig={{ scale: 140 }}
@@ -259,21 +277,22 @@ const GeopoliticsTab = ({ allCountriesTrade }) => {
                           key={geo.rsmKey}
                           geography={geo}
                           data-tooltip-id="map-tooltip"
-                          data-tooltip-content={tradeValue ? `${countryName}: $${(tradeValue / 1e9).toFixed(2)} Billion` : `${countryName}: No Data`}
+                          data-tooltip-content={tradeValue ? `${countryName}: $${(tradeValue / 1e9).toFixed(2)}B` : `${countryName}: No Data`}
                           style={{
                             default: {
-                              fill: tradeValue ? colorScale(tradeValue) : "#27272a",
+                              fill: tradeValue ? colorScale(tradeValue) : "#1a1816",
                               outline: "none",
-                              stroke: "#18181b",
-                              strokeWidth: 0.5,
+                              stroke: "#0d0d0d",
+                              strokeWidth: 0.4,
+                              transition: "fill 0.2s",
                             },
                             hover: {
-                              fill: "#6366f1",
+                              fill: "#e8c87a",
                               outline: "none",
                               cursor: "pointer",
                             },
                             pressed: {
-                              fill: "#4f46e5",
+                              fill: "#c8a96e",
                               outline: "none",
                             },
                           }}
@@ -287,7 +306,11 @@ const GeopoliticsTab = ({ allCountriesTrade }) => {
           ) : (
             <p className="empty-chart">Loading map data...</p>
           )}
-          <ReactTooltip id="map-tooltip" place="top" style={{ backgroundColor: '#18181b', color: '#fafafa', border: '1px solid #27272a', zIndex: 100 }} />
+          <ReactTooltip
+            id="map-tooltip"
+            place="top"
+            style={{ backgroundColor: '#1a1a1a', color: '#f5f0e8', border: '1px solid rgba(255,255,255,0.12)', fontSize: '12px', borderRadius: '4px', zIndex: 100 }}
+          />
         </div>
       </div>
     </div>
@@ -306,10 +329,10 @@ const CommoditiesTab = ({ topCommodities }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
-        <div style={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', padding: '12px', borderRadius: '8px', maxWidth: '350px', zIndex: 1000, position: 'relative' }}>
-          <p style={{ color: '#fafafa', margin: '0 0 8px 0', fontSize: '13px', lineHeight: '1.4', fontWeight: '500' }}>{data.fullName}</p>
-          <p style={{ color: '#a1a1aa', margin: 0, fontSize: '12px' }}>
-            Total Trade: <strong style={{ color: '#818cf8', fontSize: '13px' }}>${data.value.toFixed(2)} Billion</strong>
+        <div style={{ backgroundColor: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)', padding: '12px 14px', borderRadius: '5px', maxWidth: '320px', zIndex: 1000, position: 'relative' }}>
+          <p style={{ color: '#f5f0e8', margin: '0 0 6px 0', fontSize: '13px', lineHeight: '1.5', fontWeight: '500' }}>{data.fullName}</p>
+          <p style={{ color: '#8a8580', margin: 0, fontSize: '11.5px', fontFamily: 'JetBrains Mono, monospace' }}>
+            ${data.value.toFixed(2)}B total trade value
           </p>
         </div>
       );
@@ -328,20 +351,20 @@ const CommoditiesTab = ({ topCommodities }) => {
           {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 40, left: 20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" horizontal={false} vertical={true} />
-                <XAxis type="number" stroke="#71717a" fontSize={12} tickLine={false} axisLine={false}
+                <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" horizontal={false} vertical={true} />
+                <XAxis type="number" stroke="#4a4540" fontSize={11} tickLine={false} axisLine={false}
                   tickFormatter={(v) => `$${v.toFixed(0)}B`} />
-                <YAxis dataKey="name" type="category" stroke="#a1a1aa" fontSize={11} width={220}
+                <YAxis dataKey="name" type="category" stroke="#8a8580" fontSize={11} width={220}
                   tickLine={false} axisLine={false} />
                 <Tooltip
-                  cursor={{ fill: '#27272a' }}
+                  cursor={{ fill: 'rgba(255,255,255,0.03)' }}
                   content={<CustomTooltip />}
                 />
-                <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={22}>
+                <Bar dataKey="value" radius={[0, 3, 3, 0]} barSize={18}>
                   {chartData.map((_, index) => (
                     <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                   ))}
-                  <LabelList dataKey="value" position="right" formatter={(v) => `$${v.toFixed(1)}B`} fill="#a1a1aa" fontSize={11} />
+                  <LabelList dataKey="value" position="right" formatter={(v) => `$${v.toFixed(1)}B`} fill="#8a8580" fontSize={11} fontFamily="JetBrains Mono, monospace" />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -598,6 +621,7 @@ const SettingsTab = () => (
 // --- Main App ---
 function App() {
   const [activeTab, setActiveTab] = useState('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [tradeByYear, setTradeByYear]       = useState({ years: [], exports: [], imports: [] });
   const [topCountries, setTopCountries]     = useState({ exports: [], imports: [] });
   const [topCommodities, setTopCommodities] = useState([]);
@@ -681,24 +705,29 @@ function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       <main className="main-content">
         <header className="topbar">
           <div className="topbar-left">
+            <p className="page-eyebrow">SDG 8 · Decent Work &amp; Economic Growth</p>
             <h1 className="page-title">{pageTitles[activeTab]}</h1>
-            <p className="page-subtitle">SDG 8: Decent Work and Economic Growth</p>
           </div>
           <div className="topbar-right">
             {analyticsTab && (
               <button className="btn-secondary" onClick={fetchData}>
-                <RefreshCw size={14} style={{ marginRight: '6px' }} />
-                Refresh Data
+                <RefreshCw size={13} style={{ marginRight: '5px' }} />
+                Refresh
               </button>
             )}
             <button className="btn-primary">
-              <FileText size={14} style={{ marginRight: '6px' }} />
-              Download Report
+              <FileText size={13} style={{ marginRight: '5px' }} />
+              Export
             </button>
           </div>
         </header>
@@ -748,6 +777,15 @@ function App() {
           {activeTab === 'settings'    && <SettingsTab />}
         </div>
       </main>
+
+      {/* Mobile sidebar toggle */}
+      <button
+        className="sidebar-toggle"
+        onClick={() => setSidebarOpen(s => !s)}
+        aria-label="Toggle navigation"
+      >
+        <LayoutDashboard size={20} />
+      </button>
     </div>
   );
 }
