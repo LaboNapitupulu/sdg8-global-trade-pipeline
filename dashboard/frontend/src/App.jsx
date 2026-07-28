@@ -1,300 +1,428 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area, BarChart, Bar, Cell, LabelList, PieChart, Pie, Sector
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
-import { Chart } from "react-google-charts";
-import { ComposableMap, Geographies, Geography, ZoomableGroup } from "react-simple-maps";
-import { scaleLinear } from "d3-scale";
-import { Tooltip as ReactTooltip } from "react-tooltip";
+import { ComposableMap, Geographies, Geography, ZoomableGroup } from 'react-simple-maps';
+import { scaleLinear } from 'd3-scale';
+import { Tooltip as MapTooltip } from 'react-tooltip';
 import 'react-tooltip/dist/react-tooltip.css';
 import {
-  Activity, Globe, Box, TrendingUp, DollarSign,
-  LayoutDashboard, Database, Settings, ArrowUpRight, ArrowDownRight,
-  AlertCircle, RefreshCw, Package, FileText, ExternalLink, Info,
-  HardDrive, Calendar, Hash, Layers
+  Activity,
+  ArrowDownRight,
+  ArrowRight,
+  ArrowUpRight,
+  BarChart3,
+  Box,
+  CalendarDays,
+  Check,
+  CircleDollarSign,
+  Database,
+  Download,
+  ExternalLink,
+  FileStack,
+  Globe2,
+  HardDrive,
+  Info,
+  Layers3,
+  Menu,
+  PackageOpen,
+  RefreshCw,
+  Sparkles,
+  Target,
+  TrendingUp,
+  X,
+  Zap,
 } from 'lucide-react';
 import './index.css';
 
 const isProd = import.meta.env.PROD;
 const API_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:5000/api');
+const GEO_URL = 'https://unpkg.com/world-atlas@2.0.2/countries-110m.json';
 
-// Editorial palette — hand-curated, no AI neon
-const CHART_COLORS = [
-  '#c8a96e', /* Warm Gold */
-  '#7a9e8e', /* Sage Teal */
-  '#c87b6e', /* Terracotta */
-  '#8b9eb5', /* Steel Blue */
-  '#b89cc8', /* Dusty Violet */
-  '#a8b87a', /* Olive */
-  '#c8a07a', /* Warm Amber */
-  '#7a8ec8'  /* Muted Indigo */
+const COLORS = ['#d8ff4f', '#80e7c5', '#ff9364', '#b39cff', '#61a8ff', '#f4d06f', '#ff7f9f', '#8bd36d'];
+
+const NAV_ITEMS = [
+  { id: 'overview', label: 'Overview', icon: BarChart3 },
+  { id: 'geopolitics', label: 'Trade map', icon: Globe2 },
+  { id: 'commodities', label: 'Commodities', icon: PackageOpen },
+  { id: 'datasources', label: 'Data pipeline', icon: Database },
+  { id: 'about', label: 'About', icon: Info },
 ];
 
-// --- Sidebar ---
-const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }) => {
-  const navItems = [
-    { id: 'overview',     icon: LayoutDashboard, label: 'Overview' },
-    { id: 'geopolitics',  icon: Globe,            label: 'Trade Map' },
-    { id: 'commodities',  icon: Package,          label: 'Commodities' },
-  ];
-  const bottomItems = [
-    { id: 'datasources',  icon: Database,         label: 'Data Sources' },
-    { id: 'settings',     icon: Settings,         label: 'About' },
-  ];
+const PAGE_COPY = {
+  overview: {
+    eyebrow: 'Global trade intelligence',
+    title: 'World trade, in focus.',
+    description: 'A compact view of long-run trade flows, market leaders, and commodity concentration.',
+  },
+  geopolitics: {
+    eyebrow: 'Market geography',
+    title: 'Follow the flow of exports.',
+    description: 'Explore cumulative export value across reporting economies from the UN Comtrade dataset.',
+  },
+  commodities: {
+    eyebrow: 'Product intelligence',
+    title: 'What the world trades.',
+    description: 'Rank the product groups shaping global trade value and economic activity.',
+  },
+  datasources: {
+    eyebrow: 'Data engineering',
+    title: 'From raw files to decisions.',
+    description: 'Trace the medallion pipeline that cleans, aggregates, and serves the dashboard.',
+  },
+  about: {
+    eyebrow: 'SDG 8 analytics',
+    title: 'Built for transparent insight.',
+    description: 'Project context, system architecture, and the public sources behind the analysis.',
+  },
+};
 
-  const handleNav = (e, id) => {
-    e.preventDefault();
-    setActiveTab(id);
-    onClose();
-  };
+function formatCompactUsd(value) {
+  const amount = Number(value) || 0;
+  if (Math.abs(amount) >= 1e12) return `$${(amount / 1e12).toFixed(2)}T`;
+  if (Math.abs(amount) >= 1e9) return `$${(amount / 1e9).toFixed(1)}B`;
+  if (Math.abs(amount) >= 1e6) return `$${(amount / 1e6).toFixed(1)}M`;
+  return `$${amount.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
+function formatPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '—';
+  return `${number > 0 ? '+' : ''}${number.toFixed(1)}%`;
+}
+
+function AppHeader({ activeTab, onNavigate, menuOpen, setMenuOpen, refreshing, onRefresh, onExport }) {
+  return (
+    <header className="app-header">
+      <div className="brand-lockup" aria-label="Trade8 home">
+        <span className="brand-mark"><Activity size={16} strokeWidth={2.5} /></span>
+        <span className="brand-name">Trade<span>8</span></span>
+      </div>
+
+      <nav className={`primary-nav ${menuOpen ? 'is-open' : ''}`} aria-label="Primary navigation">
+        {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            className={`nav-pill ${activeTab === id ? 'active' : ''}`}
+            onClick={() => {
+              onNavigate(id);
+              setMenuOpen(false);
+            }}
+            aria-current={activeTab === id ? 'page' : undefined}
+          >
+            <Icon size={14} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="header-actions">
+        <span className="connection-chip"><span className="status-dot" /> Live dataset</span>
+        <button type="button" className="icon-button" onClick={onRefresh} aria-label="Refresh dashboard data">
+          <RefreshCw size={16} className={refreshing ? 'spin' : ''} />
+        </button>
+        <button type="button" className="export-button" onClick={onExport}>
+          <Download size={15} />
+          <span>Export</span>
+        </button>
+        <button
+          type="button"
+          className="menu-button"
+          onClick={() => setMenuOpen((current) => !current)}
+          aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
+          aria-expanded={menuOpen}
+        >
+          {menuOpen ? <X size={18} /> : <Menu size={18} />}
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function PageIntro({ activeTab }) {
+  const copy = PAGE_COPY[activeTab];
+  return (
+    <section className="page-intro">
+      <div>
+        <p className="eyebrow"><Sparkles size={13} /> {copy.eyebrow}</p>
+        <h1>{copy.title}</h1>
+        <p className="intro-copy">{copy.description}</p>
+      </div>
+      <div className="dataset-window">
+        <span>Dataset window</span>
+        <strong>1988—2016</strong>
+        <small>UN Comtrade · 8.2M records</small>
+      </div>
+    </section>
+  );
+}
+
+function MetricCard({ label, value, trend, helper, icon: Icon, featured = false }) {
+  const numericTrend = Number(trend);
+  const isNumeric = Number.isFinite(numericTrend);
+  const isPositive = !isNumeric || numericTrend >= 0;
+
+  return (
+    <article className={`metric-card ${featured ? 'featured' : ''}`}>
+      <div className="metric-card-top">
+        <p>{label}</p>
+        <span className="metric-icon"><Icon size={16} /></span>
+      </div>
+      <strong className="metric-value">{value}</strong>
+      <div className="metric-meta">
+        <span className={isPositive ? 'positive' : 'negative'}>
+          {isPositive ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+          {isNumeric ? formatPercent(numericTrend) : trend}
+        </span>
+        <small>{helper}</small>
+      </div>
+    </article>
+  );
+}
+
+function PanelHeader({ kicker, title, action }) {
+  return (
+    <div className="panel-heading">
+      <div>
+        {kicker && <p className="panel-kicker">{kicker}</p>}
+        <h2>{title}</h2>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function TradeTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="chart-tooltip">
+      <p>{label}</p>
+      {payload.map((entry) => (
+        <div key={entry.dataKey} className="tooltip-row">
+          <span className="tooltip-dot" style={{ background: entry.color }} />
+          <span>{entry.name}</span>
+          <strong>${Number(entry.value).toFixed(2)}B</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OverviewTab({ yearChartData, categoryData, topCountries, metrics }) {
+  const categoryTotal = categoryData.reduce((sum, item) => sum + item.value, 0);
+  const marketRows = topCountries.exports.slice(0, 5);
+  const maxMarketValue = marketRows[0]?.total_export || 1;
 
   return (
     <>
-      <div
-        className={`sidebar-overlay ${isOpen ? 'active' : ''}`}
-        onClick={onClose}
-      />
-      <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
-        <div className="sidebar-brand">
-          <div className="brand-icon">
-            <Activity size={14} />
+      <section className="metric-grid" aria-label="Key performance indicators">
+        <MetricCard
+          featured
+          label="Cumulative exports"
+          value={formatCompactUsd(metrics.totalExport)}
+          trend={metrics.exportGrowth}
+          helper="2000s vs 2010s"
+          icon={TrendingUp}
+        />
+        <MetricCard
+          label="Cumulative imports"
+          value={formatCompactUsd(metrics.totalImport)}
+          trend={metrics.importGrowth}
+          helper="2000s vs 2010s"
+          icon={CircleDollarSign}
+        />
+        <MetricCard
+          label="Leading exporter"
+          value={metrics.topExporter}
+          trend="Rank #1"
+          helper="Historical total"
+          icon={Globe2}
+        />
+        <MetricCard
+          label="Tracked categories"
+          value={String(metrics.categoryCount)}
+          trend="8 groups"
+          helper="In current overview"
+          icon={Box}
+        />
+      </section>
+
+      <section className="overview-grid">
+        <article className="dashboard-panel flow-panel">
+          <PanelHeader
+            kicker="Trade flow"
+            title="Export and import value"
+            action={<span className="panel-chip">Annual · Billion USD</span>}
+          />
+          <div className="chart-stage flow-chart">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={yearChartData} margin={{ top: 18, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="exportFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#d8ff4f" stopOpacity={0.32} />
+                    <stop offset="100%" stopColor="#d8ff4f" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="importFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#80e7c5" stopOpacity={0.2} />
+                    <stop offset="100%" stopColor="#80e7c5" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="rgba(255,255,255,0.055)" vertical={false} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#777a73', fontSize: 11 }} minTickGap={28} />
+                <YAxis width={68} axisLine={false} tickLine={false} tick={{ fill: '#777a73', fontSize: 11 }} tickFormatter={(value) => `$${value}B`} />
+                <Tooltip content={<TradeTooltip />} />
+                <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, color: '#a7aaa2' }} />
+                <Area type="monotone" dataKey="Export" stroke="#d8ff4f" strokeWidth={2.4} fill="url(#exportFill)" dot={false} activeDot={{ r: 4, fill: '#d8ff4f', stroke: '#11130f', strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="Import" stroke="#80e7c5" strokeWidth={2} fill="url(#importFill)" dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
-          <span className="brand-text">UN Trade<br/>Analytics</span>
-        </div>
-        <nav className="sidebar-nav">
-          <div className="nav-section-label">Analytics</div>
-          {navItems.map(({ id, icon: Icon, label }) => (
-            <a
-              key={id}
-              href="#"
-              onClick={(e) => handleNav(e, id)}
-              className={`nav-item ${activeTab === id ? 'active' : ''}`}
-            >
-              <Icon size={15} />
-              {label}
-            </a>
-          ))}
-          <div className="nav-divider" />
-          <div className="nav-section-label">Reference</div>
-          {bottomItems.map(({ id, icon: Icon, label }) => (
-            <a
-              key={id}
-              href="#"
-              onClick={(e) => handleNav(e, id)}
-              className={`nav-item ${activeTab === id ? 'active' : ''}`}
-            >
-              <Icon size={15} />
-              {label}
-            </a>
-          ))}
-        </nav>
-        <div className="sidebar-footer">
-          <div className="sidebar-footer-text">
-            SDG 8 Dashboard<br/>
-            UN Comtrade · 1988–2016<br/>
-            Big Data Engineering
+        </article>
+
+        <article className="dashboard-panel allocation-panel">
+          <PanelHeader
+            kicker="Product mix"
+            title="Category allocation"
+            action={<span className="round-action"><ArrowUpRight size={14} /></span>}
+          />
+          <div className="donut-wrap">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={categoryData}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={65}
+                  outerRadius={92}
+                  paddingAngle={3}
+                  cornerRadius={6}
+                  stroke="none"
+                >
+                  {categoryData.map((item, index) => (
+                    <Cell key={item.name} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const item = payload[0];
+                    return (
+                      <div className="chart-tooltip">
+                        <p>{item.name}</p>
+                        <strong>{formatCompactUsd(item.value * 1e9)}</strong>
+                      </div>
+                    );
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="donut-center">
+              <small>Portfolio</small>
+              <strong>{formatCompactUsd(categoryTotal * 1e9)}</strong>
+            </div>
           </div>
-        </div>
-      </aside>
+          <div className="legend-list">
+            {categoryData.slice(0, 4).map((item, index) => (
+              <div key={item.name}>
+                <span className="legend-color" style={{ background: COLORS[index % COLORS.length] }} />
+                <p>{item.name}</p>
+                <strong>{categoryTotal ? `${((item.value / categoryTotal) * 100).toFixed(1)}%` : '0%'}</strong>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="dashboard-panel markets-panel">
+          <PanelHeader
+            kicker="Market leaders"
+            title="Top exporting economies"
+            action={<span className="panel-chip">Cumulative</span>}
+          />
+          <div className="market-list">
+            {marketRows.map((country, index) => (
+              <div className="market-row" key={country.country_or_area}>
+                <span className="market-rank">{String(index + 1).padStart(2, '0')}</span>
+                <div className="market-main">
+                  <div>
+                    <p>{country.country_or_area}</p>
+                    <strong>{formatCompactUsd(country.total_export)}</strong>
+                  </div>
+                  <span className="market-track">
+                    <span style={{ width: `${Math.max(8, (country.total_export / maxMarketValue) * 100)}%` }} />
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="dashboard-panel insight-panel">
+          <div className="insight-orb"><Target size={24} /></div>
+          <div>
+            <p className="panel-kicker">SDG 8 signal</p>
+            <h2>Trade growth can widen access to productive opportunity.</h2>
+            <p>
+              Use the dashboard to examine where value concentrates, which markets lead,
+              and how trade activity changes across economic cycles.
+            </p>
+          </div>
+          <a href="https://sdgs.un.org/goals/goal8" target="_blank" rel="noreferrer" className="insight-link">
+            Explore Goal 8 <ArrowRight size={14} />
+          </a>
+        </article>
+      </section>
     </>
   );
-};
+}
 
-// --- Stat Card ---
-const StatCard = ({ title, value, icon: Icon, trendValue, description }) => {
-  const pct = parseFloat(trendValue);
-  const isPositive = !isNaN(pct) ? pct >= 0 : true;
-  const displayTrend = !isNaN(pct)
-    ? `${pct > 0 ? '+' : ''}${pct}%`
-    : trendValue;
-
-  return (
-    <div className="stat-card">
-      <div className="stat-header">
-        <h3 className="stat-title">{title}</h3>
-        <Icon size={16} className="stat-icon" />
-      </div>
-      <div className="stat-value">{value}</div>
-      <div className="stat-footer">
-        <span className={`stat-trend ${isPositive ? 'trend-up' : 'trend-down'}`}>
-          {isPositive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-          {displayTrend}
-        </span>
-        <span className="stat-desc">{description}</span>
-      </div>
-    </div>
-  );
-};
-
-// --- Custom Tooltip ---
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="custom-tooltip">
-        <p className="tooltip-label">{label}</p>
-        {payload.map((entry, index) => (
-          <div key={index} className="tooltip-entry">
-            <span className="tooltip-indicator" style={{ backgroundColor: entry.color }} />
-            <span className="tooltip-name">{entry.name}:</span>
-            <span className="tooltip-value">${Number(entry.value).toFixed(2)}B</span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  return null;
-};
-
-// --- Error Banner ---
-const ErrorBanner = ({ message, onRetry }) => (
-  <div className="error-banner">
-    <AlertCircle size={18} />
-    <span>{message}</span>
-    <button onClick={onRetry} className="retry-btn">
-      <RefreshCw size={14} /> Retry
-    </button>
-  </div>
-);
-
-// --- Overview Tab ---
-const OverviewTab = ({ yearChartData, pieData }) => {
-  // Explode all slices to create the requested "separated" 3D look
-  // and completely eliminate z-fighting (collision) between thin slices
-  const explosionOffsets = {};
-  for (let i = 0; i < 15; i++) {
-    explosionOffsets[i] = { offset: 0.05 };
-  }
-
-  // Option configurations for 3D Pie Chart
-  const pieOptions = {
-    is3D: true,
-    backgroundColor: 'transparent',
-    legend: { position: 'right', textStyle: { color: '#a1a1aa', fontSize: 12 } },
-    chartArea: { width: '85%', height: '90%' },
-    pieSliceBorderColor: 'none', // Remove border to make 3D effect smoother
-    colors: CHART_COLORS,
-    tooltip: { showColorCode: true },
-    slices: explosionOffsets
-  };
-
-  return (
-    <div className="charts-grid">
-      <div className="chart-panel wide-panel">
-        <div className="panel-header">
-          <h2>Trade Value Over Time (Billion USD)</h2>
-          <span className="badge">1990 – Present</span>
-        </div>
-        <div className="chart-wrapper">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={yearChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="colorExport" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#c8a96e" stopOpacity={0.18} />
-                  <stop offset="95%" stopColor="#c8a96e" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="colorImport" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#7a9e8e" stopOpacity={0.18} />
-                  <stop offset="95%" stopColor="#7a9e8e" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" vertical={false} />
-              <XAxis dataKey="name" stroke="#4a4540" fontSize={11} tickLine={false} axisLine={false} dy={10} />
-              <YAxis stroke="#4a4540" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}B`} />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', color: '#8a8580', marginTop: '12px', letterSpacing: '0.04em' }} />
-              <Area type="monotone" dataKey="Export" stroke="#c8a96e" strokeWidth={2} fillOpacity={1} fill="url(#colorExport)" dot={false} />
-              <Area type="monotone" dataKey="Import" stroke="#7a9e8e" strokeWidth={2} fillOpacity={1} fill="url(#colorImport)" dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="chart-panel wide-panel">
-        <div className="panel-header">
-          <h2>Volume Distribution by Category (3D)</h2>
-          <span className="badge">Interactive Doughnut</span>
-        </div>
-        <div className="chart-wrapper" style={{ height: '420px' }}>
-          {pieData.length > 1 ? (
-            <Chart
-              chartType="PieChart"
-              data={pieData}
-              options={pieOptions}
-              width="100%"
-              height="100%"
-            />
-          ) : (
-            <p className="empty-chart">Category data not available.</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// --- Geopolitics Tab ---
-const GeopoliticsTab = ({ allCountriesTrade }) => {
-  const geoUrl = "https://unpkg.com/world-atlas@2.0.2/countries-110m.json";
-  
+function TradeMapTab({ allCountriesTrade }) {
   const values = Object.values(allCountriesTrade);
-  const maxTrade = values.length > 0 ? Math.max(...values) : 1;
+  const maxTrade = values.length ? Math.max(...values) : 1;
   const colorScale = scaleLinear()
-    .domain([0, maxTrade * 0.25, maxTrade])
-    .range(["#1e1a14", "#8c6a38", "#c8a96e"]);
+    .domain([0, maxTrade * 0.18, maxTrade])
+    .range(['#242721', '#6e7e37', '#d8ff4f']);
 
   return (
-    <div className="charts-grid">
-      <div className="chart-panel wide-panel" style={{ position: "relative" }}>
-        <div className="panel-header">
-          <div className="panel-header-left">
-            <h2>Global Export Heatmap</h2>
-            <p className="panel-subtitle">Cumulative trade value by country · 1988–2016</p>
-          </div>
-          <span className="badge">Zoomable</span>
-        </div>
-        <div className="chart-wrapper" style={{ height: '580px', overflow: 'hidden', cursor: 'grab', backgroundColor: '#0d0d0d', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
-          {Object.keys(allCountriesTrade).length > 0 ? (
-            <ComposableMap
-              projectionConfig={{ scale: 140 }}
-              width={800}
-              height={400}
-              style={{ width: "100%", height: "100%" }}
-            >
-              <ZoomableGroup 
-                zoom={1} 
-                minZoom={1} 
-                maxZoom={8} 
-                translateExtent={[[0, 0], [800, 400]]}
-              >
-                <Geographies geography={geoUrl}>
+    <section className="single-panel-layout">
+      <article className="dashboard-panel map-panel">
+        <PanelHeader
+          kicker="Geographic distribution"
+          title="Cumulative export intensity"
+          action={<span className="panel-chip"><Globe2 size={12} /> Scroll to zoom</span>}
+        />
+        <div className="map-stage">
+          {Object.keys(allCountriesTrade).length ? (
+            <ComposableMap projectionConfig={{ scale: 145 }} width={900} height={460}>
+              <ZoomableGroup zoom={1} minZoom={1} maxZoom={8} translateExtent={[[0, 0], [900, 460]]}>
+                <Geographies geography={GEO_URL}>
                   {({ geographies }) =>
                     geographies.map((geo) => {
-                      const countryName = geo.properties.name;
-                      const tradeValue = allCountriesTrade[countryName];
+                      const name = geo.properties.name;
+                      const value = allCountriesTrade[name];
                       return (
                         <Geography
                           key={geo.rsmKey}
                           geography={geo}
-                          data-tooltip-id="map-tooltip"
-                          data-tooltip-content={tradeValue ? `${countryName}: $${(tradeValue / 1e9).toFixed(2)}B` : `${countryName}: No Data`}
+                          data-tooltip-id="trade-map-tooltip"
+                          data-tooltip-content={value ? `${name} · ${formatCompactUsd(value)}` : `${name} · No data`}
                           style={{
-                            default: {
-                              fill: tradeValue ? colorScale(tradeValue) : "#1a1816",
-                              outline: "none",
-                              stroke: "#0d0d0d",
-                              strokeWidth: 0.4,
-                              transition: "fill 0.2s",
-                            },
-                            hover: {
-                              fill: "#e8c87a",
-                              outline: "none",
-                              cursor: "pointer",
-                            },
-                            pressed: {
-                              fill: "#c8a96e",
-                              outline: "none",
-                            },
+                            default: { fill: value ? colorScale(value) : '#20231e', outline: 'none', stroke: '#11130f', strokeWidth: 0.6 },
+                            hover: { fill: '#ffffff', outline: 'none', cursor: 'pointer' },
+                            pressed: { fill: '#d8ff4f', outline: 'none' },
                           }}
                         />
                       );
@@ -304,488 +432,422 @@ const GeopoliticsTab = ({ allCountriesTrade }) => {
               </ZoomableGroup>
             </ComposableMap>
           ) : (
-            <p className="empty-chart">Loading map data...</p>
+            <EmptyState message="Map data is not available." />
           )}
-          <ReactTooltip
-            id="map-tooltip"
-            place="top"
-            style={{ backgroundColor: '#1a1a1a', color: '#f5f0e8', border: '1px solid rgba(255,255,255,0.12)', fontSize: '12px', borderRadius: '4px', zIndex: 100 }}
-          />
+          <MapTooltip id="trade-map-tooltip" className="map-tooltip" />
         </div>
-      </div>
+        <div className="map-legend">
+          <span>Lower value</span>
+          <span className="gradient-scale" />
+          <span>Higher value</span>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function CommodityTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const item = payload[0].payload;
+  return (
+    <div className="chart-tooltip commodity-tooltip">
+      <p>{item.fullName}</p>
+      <strong>{formatCompactUsd(item.rawValue)}</strong>
     </div>
   );
-};
+}
 
-// --- Commodities Tab ---
-const CommoditiesTab = ({ topCommodities }) => {
-  const chartData = topCommodities.map(item => ({
-    name: item.commodity.length > 28 ? item.commodity.substring(0, 28) + '…' : item.commodity,
+function CommoditiesTab({ topCommodities }) {
+  const chartData = topCommodities.map((item) => ({
+    name: item.commodity.length > 25 ? `${item.commodity.slice(0, 25)}…` : item.commodity,
     fullName: item.commodity,
     value: item.total_trade / 1e9,
+    rawValue: item.total_trade,
   }));
 
-  const CustomTooltip = ({ active, payload }) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div style={{ backgroundColor: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)', padding: '12px 14px', borderRadius: '5px', maxWidth: '320px', zIndex: 1000, position: 'relative' }}>
-          <p style={{ color: '#f5f0e8', margin: '0 0 6px 0', fontSize: '13px', lineHeight: '1.5', fontWeight: '500' }}>{data.fullName}</p>
-          <p style={{ color: '#8a8580', margin: 0, fontSize: '11.5px', fontFamily: 'JetBrains Mono, monospace' }}>
-            ${data.value.toFixed(2)}B total trade value
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
-
   return (
-    <div className="charts-grid">
-      <div className="chart-panel wide-panel">
-        <div className="panel-header">
-          <h2>Top 10 Commodities by Trade Value</h2>
-          <span className="badge">Billion USD</span>
-        </div>
-        <div className="chart-wrapper" style={{ height: '420px' }}>
-          {chartData.length > 0 ? (
+    <section className="commodity-layout">
+      <article className="dashboard-panel commodity-chart-panel">
+        <PanelHeader
+          kicker="Value ranking"
+          title="Top commodities"
+          action={<span className="panel-chip">Billion USD</span>}
+        />
+        <div className="chart-stage commodity-chart">
+          {chartData.length ? (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 40, left: 20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" horizontal={false} vertical={true} />
-                <XAxis type="number" stroke="#4a4540" fontSize={11} tickLine={false} axisLine={false}
-                  tickFormatter={(v) => `$${v.toFixed(0)}B`} />
-                <YAxis dataKey="name" type="category" stroke="#8a8580" fontSize={11} width={220}
-                  tickLine={false} axisLine={false} />
-                <Tooltip
-                  cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                  content={<CustomTooltip />}
-                />
-                <Bar dataKey="value" radius={[0, 3, 3, 0]} barSize={18}>
-                  {chartData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+              <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 48, left: 22, bottom: 0 }}>
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#777a73', fontSize: 10 }} tickFormatter={(value) => `$${value.toFixed(0)}B`} />
+                <YAxis type="category" dataKey="name" width={190} axisLine={false} tickLine={false} tick={{ fill: '#a7aaa2', fontSize: 11 }} />
+                <Tooltip cursor={{ fill: 'rgba(255,255,255,0.035)' }} content={<CommodityTooltip />} />
+                <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={18}>
+                  {chartData.map((item, index) => (
+                    <Cell key={item.fullName} fill={index === 0 ? '#d8ff4f' : COLORS[(index + 1) % COLORS.length]} />
                   ))}
-                  <LabelList dataKey="value" position="right" formatter={(v) => `$${v.toFixed(1)}B`} fill="#8a8580" fontSize={11} fontFamily="JetBrains Mono, monospace" />
+                  <LabelList dataKey="value" position="right" formatter={(value) => `$${value.toFixed(1)}B`} fill="#8d9188" fontSize={10} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <p className="empty-chart">Commodity data not available.</p>
+            <EmptyState message="Commodity data is not available." />
           )}
         </div>
-      </div>
+      </article>
 
-      <div className="chart-panel wide-panel">
-        <div className="panel-header">
-          <h2>Commodity Detail Table</h2>
-        </div>
-        <div className="table-wrapper">
+      <article className="dashboard-panel commodity-table-panel">
+        <PanelHeader kicker="Detail view" title="Commodity ledger" />
+        <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
                 <th>Rank</th>
                 <th>Commodity</th>
                 <th>Category</th>
-                <th style={{ textAlign: 'right' }}>Total Value (USD)</th>
+                <th>Trade value</th>
               </tr>
             </thead>
             <tbody>
               {topCommodities.map((item, index) => (
-                <tr key={index}>
-                  <td className="rank-cell">#{index + 1}</td>
-                  <td>{item.commodity}</td>
-                  <td><span className="category-badge">{item.category}</span></td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    ${(item.total_trade / 1e9).toFixed(2)}B
-                  </td>
+                <tr key={`${item.commodity}-${index}`}>
+                  <td><span className="rank-badge">{String(index + 1).padStart(2, '0')}</span></td>
+                  <td><strong>{item.commodity}</strong></td>
+                  <td><span className="category-tag">{String(item.category).replaceAll('_', ' ')}</span></td>
+                  <td>{formatCompactUsd(item.total_trade)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      </article>
+    </section>
+  );
+}
+
+function DataPipelineTab() {
+  const stages = [
+    {
+      name: 'Bronze',
+      icon: HardDrive,
+      title: 'Raw ingestion',
+      description: 'UN Comtrade CSV records land unchanged, preserving source fidelity for auditing.',
+      meta: '8.2M rows',
+    },
+    {
+      name: 'Silver',
+      icon: Zap,
+      title: 'Quality and standardization',
+      description: 'Null handling, flow filtering, country normalization, and typed trade measures.',
+      meta: 'Validated',
+    },
+    {
+      name: 'Gold',
+      icon: Layers3,
+      title: 'Analytics-ready aggregates',
+      description: 'Year, economy, and commodity summaries are written to SQLite for low-latency reads.',
+      meta: 'API ready',
+    },
+  ];
+
+  return (
+    <section className="pipeline-layout">
+      <article className="dashboard-panel pipeline-panel">
+        <PanelHeader
+          kicker="Medallion architecture"
+          title="Three layers, one trusted view"
+          action={<span className="panel-chip"><Check size={12} /> Production pattern</span>}
+        />
+        <div className="pipeline-track">
+          {stages.map(({ name, icon: Icon, title, description, meta }, index) => (
+            <div className="pipeline-stage" key={name}>
+              <div className={`stage-icon ${name.toLowerCase()}`}><Icon size={19} /></div>
+              <div className="stage-copy">
+                <div className="stage-label-row">
+                  <span>{name}</span>
+                  <small>{meta}</small>
+                </div>
+                <h3>{title}</h3>
+                <p>{description}</p>
+              </div>
+              {index < stages.length - 1 && <span className="stage-connector"><ArrowRight size={16} /></span>}
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <div className="source-cards">
+        <article className="dashboard-panel source-card">
+          <FileStack size={18} />
+          <p>Source format</p>
+          <strong>CSV / Parquet</strong>
+          <small>Raw commodity trade records</small>
+        </article>
+        <article className="dashboard-panel source-card">
+          <Activity size={18} />
+          <p>Compute engines</p>
+          <strong>Spark + Pandas</strong>
+          <small>Distributed and local ETL paths</small>
+        </article>
+        <article className="dashboard-panel source-card">
+          <Database size={18} />
+          <p>Serving layer</p>
+          <strong>Flask + SQLite</strong>
+          <small>Cached REST endpoints</small>
+        </article>
+        <article className="dashboard-panel source-card">
+          <CalendarDays size={18} />
+          <p>Time coverage</p>
+          <strong>1988—2016</strong>
+          <small>Historical reporting window</small>
+        </article>
       </div>
+
+      <article className="dashboard-panel schema-panel">
+        <PanelHeader kicker="Gold contract" title="Analytics schema" />
+        <div className="schema-grid">
+          {[
+            ['country_or_area', 'string', 'Reporting economy'],
+            ['year', 'integer', 'Reference period'],
+            ['flow', 'string', 'Export or import'],
+            ['commodity', 'string', 'HS-based description'],
+            ['trade_usd', 'float', 'Trade value in USD'],
+            ['weight_kg', 'float', 'Net traded weight'],
+          ].map(([field, type, description]) => (
+            <div className="schema-field" key={field}>
+              <code>{field}</code>
+              <span>{type}</span>
+              <small>{description}</small>
+            </div>
+          ))}
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function AboutTab() {
+  const links = [
+    ['UN Comtrade', 'Official global trade statistics', 'https://comtrade.un.org/'],
+    ['Kaggle dataset', 'Raw commodity trade archive', 'https://www.kaggle.com/datasets/unitednations/global-commodity-trade-statistics'],
+    ['UN SDG Goal 8', 'Decent work and economic growth', 'https://sdgs.un.org/goals/goal8'],
+    ['GitHub repository', 'Source code and documentation', 'https://github.com/LaboNapitupulu/sdg8-global-trade-pipeline'],
+  ];
+
+  return (
+    <section className="about-layout">
+      <article className="dashboard-panel about-hero">
+        <span className="about-symbol"><Globe2 size={27} /></span>
+        <div>
+          <p className="panel-kicker">Project mission</p>
+          <h2>Make global trade data easier to inspect, explain, and reuse.</h2>
+          <p>
+            Trade8 combines a medallion ETL pipeline with a focused analytics interface.
+            The project supports SDG 8 by making economic activity and market concentration
+            visible through reproducible public data.
+          </p>
+        </div>
+      </article>
+
+      <article className="dashboard-panel stack-panel">
+        <PanelHeader kicker="System profile" title="Technology stack" />
+        <div className="stack-list">
+          {[
+            ['Frontend', 'React, Vite, Recharts, Simple Maps'],
+            ['Backend', 'Python, Flask, Pandas, SQLite'],
+            ['Pipeline', 'Apache Spark and Pandas'],
+            ['Infrastructure', 'Docker Compose, Hadoop, Hive, Presto'],
+          ].map(([label, value]) => (
+            <div key={label}><span>{label}</span><strong>{value}</strong></div>
+          ))}
+        </div>
+      </article>
+
+      <article className="dashboard-panel resources-panel">
+        <PanelHeader kicker="References" title="Open resources" />
+        <div className="resource-list">
+          {links.map(([label, description, url]) => (
+            <a href={url} target="_blank" rel="noreferrer" key={label}>
+              <span><strong>{label}</strong><small>{description}</small></span>
+              <ExternalLink size={15} />
+            </a>
+          ))}
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function EmptyState({ message }) {
+  return (
+    <div className="empty-state">
+      <PackageOpen size={22} />
+      <p>{message}</p>
     </div>
   );
-};
+}
 
-// --- Data Sources Tab ---
-const DataSourcesTab = () => (
-  <div className="charts-grid">
-    <div className="chart-panel wide-panel">
-      <div className="panel-header">
-        <h2>Dataset Information</h2>
-        <span className="badge">UN Comtrade</span>
-      </div>
-      <div className="info-grid">
-        <div className="info-card">
-          <div className="info-icon-wrap"><HardDrive size={20} /></div>
-          <div>
-            <p className="info-label">Dataset Size</p>
-            <p className="info-value">~1.2 GB</p>
-          </div>
-        </div>
-        <div className="info-card">
-          <div className="info-icon-wrap"><Hash size={20} /></div>
-          <div>
-            <p className="info-label">Total Records</p>
-            <p className="info-value">~8.2 Million rows</p>
-          </div>
-        </div>
-        <div className="info-card">
-          <div className="info-icon-wrap"><Calendar size={20} /></div>
-          <div>
-            <p className="info-label">Time Coverage</p>
-            <p className="info-value">1988 – 2016</p>
-          </div>
-        </div>
-        <div className="info-card">
-          <div className="info-icon-wrap"><Layers size={20} /></div>
-          <div>
-            <p className="info-label">Pipeline Architecture</p>
-            <p className="info-value">Medallion (Bronze → Silver → Gold)</p>
-          </div>
-        </div>
-      </div>
+function ErrorBanner({ message, onRetry }) {
+  return (
+    <div className="error-banner" role="alert">
+      <Info size={17} />
+      <span>{message}</span>
+      <button type="button" onClick={onRetry}>Try again</button>
     </div>
+  );
+}
 
-    <div className="chart-panel wide-panel">
-      <div className="panel-header">
-        <h2>Data Pipeline</h2>
-      </div>
-      <div className="pipeline-steps">
-        <div className="pipeline-step">
-          <div className="step-badge bronze">Bronze</div>
-          <div className="step-content">
-            <p className="step-title">Raw Ingestion</p>
-            <p className="step-desc">Raw CSV data ingested from UN Comtrade. No transformations applied. Full fidelity preserved.</p>
-          </div>
-        </div>
-        <div className="pipeline-arrow">↓</div>
-        <div className="pipeline-step">
-          <div className="step-badge silver">Silver</div>
-          <div className="step-content">
-            <p className="step-title">Cleaning & Standardization</p>
-            <p className="step-desc">Filter exports only. Drop rows with null <code>trade_usd</code> or <code>weight_kg</code>. Standardize country names with <code>str.title()</code>.</p>
-          </div>
-        </div>
-        <div className="pipeline-arrow">↓</div>
-        <div className="pipeline-step">
-          <div className="step-badge gold">Gold</div>
-          <div className="step-content">
-            <p className="step-title">Aggregated Analytics</p>
-            <p className="step-desc">Group by year, country, and commodity. Aggregate total export value (USD) and volume (KG). Stored in SQLite for fast API access.</p>
-          </div>
-        </div>
-      </div>
+function LoadingScreen() {
+  return (
+    <div className="loading-screen">
+      <span className="loading-mark"><Activity size={20} /></span>
+      <p>Trade8</p>
+      <small>Preparing global trade intelligence</small>
+      <span className="loading-line"><span /></span>
     </div>
+  );
+}
 
-    <div className="chart-panel wide-panel">
-      <div className="panel-header">
-        <h2>Schema Reference</h2>
-      </div>
-      <div className="table-wrapper">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Column</th>
-              <th>Type</th>
-              <th>Description</th>
-              <th>Layer</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              { col: 'country_or_area', type: 'string', desc: 'Reporting country or customs area', layer: 'Bronze' },
-              { col: 'year', type: 'integer', desc: 'Reference year of the transaction', layer: 'Bronze' },
-              { col: 'commodity', type: 'string', desc: 'Commodity description (HS code based)', layer: 'Bronze' },
-              { col: 'flow', type: 'string', desc: 'Trade flow: Export or Import', layer: 'Bronze' },
-              { col: 'trade_usd', type: 'float', desc: 'Trade value in current US Dollars', layer: 'Silver' },
-              { col: 'weight_kg', type: 'float', desc: 'Net weight of traded goods in kg', layer: 'Silver' },
-              { col: 'category', type: 'string', desc: 'Commodity grouping category', layer: 'Silver' },
-              { col: 'total_nilai_ekspor_usd', type: 'float', desc: 'Aggregated export value per group', layer: 'Gold' },
-              { col: 'total_volume_kg', type: 'float', desc: 'Aggregated weight per group', layer: 'Gold' },
-            ].map((row, i) => (
-              <tr key={i}>
-                <td><code style={{ color: '#a5b4fc', fontSize: '12px' }}>{row.col}</code></td>
-                <td><span className="category-badge">{row.type}</span></td>
-                <td style={{ color: '#a1a1aa', fontSize: '13px' }}>{row.desc}</td>
-                <td>
-                  <span className={`step-badge ${row.layer.toLowerCase()}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                    {row.layer}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div className="chart-panel wide-panel">
-      <div className="panel-header">
-        <h2>External Links</h2>
-      </div>
-      <div className="links-grid">
-        {[
-          { label: 'UN Comtrade Database', url: 'https://comtrade.un.org/', desc: 'Official UN trade statistics portal' },
-          { label: 'Kaggle Dataset', url: 'https://www.kaggle.com/datasets/unitednations/global-commodity-trade-statistics', desc: 'Download the raw CSV dataset' },
-          { label: 'SDG Goal 8', url: 'https://sdgs.un.org/goals/goal8', desc: 'Decent Work and Economic Growth — UN SDG' },
-          { label: 'GitHub Repository', url: 'https://github.com/LaboNapitupulu/sdg8-global-trade-pipeline', desc: 'Project source code on GitHub' },
-        ].map((link, i) => (
-          <a key={i} href={link.url} target="_blank" rel="noreferrer" className="link-card">
-            <div>
-              <p className="link-title">{link.label}</p>
-              <p className="link-desc">{link.desc}</p>
-            </div>
-            <ExternalLink size={16} className="link-icon" />
-          </a>
-        ))}
-      </div>
-    </div>
-  </div>
-);
-
-// --- Settings Tab ---
-const SettingsTab = () => (
-  <div className="charts-grid">
-    <div className="chart-panel wide-panel">
-      <div className="panel-header">
-        <h2>API Configuration</h2>
-        <span className="badge">Read-only</span>
-      </div>
-      <div className="settings-section">
-        <div className="setting-row">
-          <div>
-            <p className="setting-label">Backend API URL</p>
-            <p className="setting-hint">Configured via <code>VITE_API_URL</code> environment variable</p>
-          </div>
-          <code className="setting-value">{API_URL}</code>
-        </div>
-        <div className="setting-row">
-          <div>
-            <p className="setting-label">Data Refresh</p>
-            <p className="setting-hint">Data is fetched on page load. Use the Refresh button to re-fetch.</p>
-          </div>
-          <span className="setting-value">On demand</span>
-        </div>
-        <div className="setting-row">
-          <div>
-            <p className="setting-label">Cache Duration</p>
-            <p className="setting-hint">API responses are cached in the browser for 5 minutes.</p>
-          </div>
-          <span className="setting-value">300 seconds</span>
-        </div>
-      </div>
-    </div>
-
-    <div className="chart-panel wide-panel">
-      <div className="panel-header">
-        <h2>Project Information</h2>
-      </div>
-      <div className="settings-section">
-        {[
-          { label: 'Project Name', value: 'SDG 8 Global Trade Pipeline' },
-          { label: 'Course', value: 'Big Data Engineering' },
-          { label: 'Dataset', value: 'UN Comtrade — Global Commodity Trade Statistics' },
-          { label: 'Frontend Stack', value: 'React 18 + Vite + Recharts + Google Charts' },
-          { label: 'Backend Stack', value: 'Python 3 + Flask + SQLite + Pandas' },
-          { label: 'Pipeline Engine', value: 'Apache Spark (Hadoop + Hive) / Pandas' },
-          { label: 'Architecture', value: 'Medallion (Bronze → Silver → Gold)' },
-          { label: 'Containerization', value: 'Docker Compose (Hadoop, Spark, Hive, Presto)' },
-        ].map((item, i) => (
-          <div key={i} className="setting-row">
-            <p className="setting-label">{item.label}</p>
-            <span className="setting-value">{item.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-
-    <div className="chart-panel wide-panel">
-      <div className="panel-header">
-        <h2>About</h2>
-      </div>
-      <div className="about-block">
-        <Info size={16} style={{ flexShrink: 0, color: '#6366f1', marginTop: 2 }} />
-        <p>
-          This dashboard visualizes global commodity trade data sourced from the UN Comtrade database,
-          processed through a <strong>Medallion Architecture</strong> ETL pipeline. The pipeline compares
-          performance between <strong>Apache Spark</strong> (distributed) and <strong>Pandas</strong> (single-node)
-          execution engines, with results stored in a SQLite database for low-latency API access.
-          Built as part of the SDG 8 initiative — Decent Work and Economic Growth.
-        </p>
-      </div>
-    </div>
-  </div>
-);
-
-// --- Main App ---
 function App() {
   const [activeTab, setActiveTab] = useState('overview');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [tradeByYear, setTradeByYear]       = useState({ years: [], exports: [], imports: [] });
-  const [topCountries, setTopCountries]     = useState({ exports: [], imports: [] });
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [tradeByYear, setTradeByYear] = useState({ years: [], exports: [], imports: [] });
+  const [topCountries, setTopCountries] = useState({ exports: [], imports: [] });
   const [topCommodities, setTopCommodities] = useState([]);
   const [tradeByCategory, setTradeByCategory] = useState([]);
   const [allCountriesTrade, setAllCountriesTrade] = useState({});
-  const [growthMetrics, setGrowthMetrics]   = useState({ export_growth_pct: null, import_growth_pct: null });
-  const [loading, setLoading]               = useState(true);
-  const [error, setError]                   = useState(null);
+  const [growthMetrics, setGrowthMetrics] = useState({ export_growth_pct: null, import_growth_pct: null });
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async ({ initial = false } = {}) => {
+    if (initial) setLoading(true);
+    else setRefreshing(true);
     setError(null);
+
     try {
-      const [yearRes, countriesRes, commRes, catRes, allRes, growthRes] = await Promise.all([
-        fetch(`${API_URL}/trade-by-year`),
-        fetch(`${API_URL}/top-countries`),
-        fetch(`${API_URL}/top-commodities`),
-        fetch(`${API_URL}/trade-by-category`),
-        fetch(`${API_URL}/all-countries-trade`),
-        fetch(`${API_URL}/growth-metrics`),
-      ]);
-
-      const responses = [yearRes, countriesRes, commRes, catRes, allRes, growthRes];
-      const failed = responses.find(r => !r.ok);
-      if (failed) throw new Error(`API error: ${failed.status} ${failed.statusText}`);
-
-      setTradeByYear(await yearRes.json());
-      setTopCountries(await countriesRes.json());
-      setTopCommodities(await commRes.json());
-      setTradeByCategory(await catRes.json());
-      setAllCountriesTrade(await allRes.json());
-      setGrowthMetrics(await growthRes.json());
-    } catch (err) {
-      setError(`Failed to connect to API. Make sure the Python backend is running at ${API_URL.replace('/api', '')}. (${err.message})`);
+      const endpoints = [
+        'trade-by-year',
+        'top-countries',
+        'top-commodities',
+        'trade-by-category',
+        'all-countries-trade',
+        'growth-metrics',
+      ];
+      const responses = await Promise.all(endpoints.map((endpoint) => fetch(`${API_URL}/${endpoint}`)));
+      const failed = responses.find((response) => !response.ok);
+      if (failed) throw new Error(`${failed.status} ${failed.statusText}`);
+      const [year, countries, commodities, categories, countriesTrade, growth] =
+        await Promise.all(responses.map((response) => response.json()));
+      setTradeByYear(year);
+      setTopCountries(countries);
+      setTopCommodities(commodities);
+      setTradeByCategory(categories);
+      setAllCountriesTrade(countriesTrade);
+      setGrowthMetrics(growth);
+    } catch (requestError) {
+      setError(`The analytics API is unavailable at ${API_URL}. ${requestError.message}`);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData({ initial: true });
+  }, [fetchData]);
 
-  const yearChartData = tradeByYear.years.map((year, i) => ({
-    name: year,
-    Export: tradeByYear.exports[i] / 1e9,
-    Import: tradeByYear.imports[i] / 1e9,
-  }));
+  const yearChartData = useMemo(
+    () => tradeByYear.years.map((year, index) => ({
+      name: year,
+      Export: (tradeByYear.exports[index] || 0) / 1e9,
+      Import: (tradeByYear.imports[index] || 0) / 1e9,
+    })),
+    [tradeByYear],
+  );
 
-  const geoData = [
-    ["Country", "Export Value (Billion USD)"],
-    ...Object.entries(allCountriesTrade).map(([country, val]) => [country, val / 1e9])
-  ];
+  const categoryData = useMemo(
+    () => tradeByCategory.map((item) => ({
+      name: item.category,
+      value: item.total_trade / 1e9,
+    })),
+    [tradeByCategory],
+  );
 
-  const pieData = [
-    ["Category", "Trade Value"],
-    ...tradeByCategory.map(item => [item.category, item.total_trade / 1e9])
-  ];
-
-  const totalExport  = tradeByYear.exports.reduce((a, b) => a + b, 0) / 1e12;
-  const totalImport  = tradeByYear.imports.reduce((a, b) => a + b, 0) / 1e12;
-  const topExporter  = topCountries.exports.length > 0 ? topCountries.exports[0].country_or_area : '-';
-
-  const pageTitles = {
-    overview:    'Global Trade Overview',
-    geopolitics: 'Geopolitical Trade Map',
-    commodities: 'Commodities Analysis',
-    datasources: 'Data Sources',
-    settings:    'Settings',
+  const totalExport = tradeByYear.exports.reduce((sum, value) => sum + value, 0);
+  const totalImport = tradeByYear.imports.reduce((sum, value) => sum + value, 0);
+  const metrics = {
+    totalExport,
+    totalImport,
+    exportGrowth: growthMetrics.export_growth_pct,
+    importGrowth: growthMetrics.import_growth_pct,
+    topExporter: topCountries.exports[0]?.country_or_area || '—',
+    categoryCount: tradeByCategory.length,
   };
 
-  const analyticsTab = ['overview', 'geopolitics', 'commodities'].includes(activeTab);
+  const exportSummary = () => {
+    const rows = [
+      ['metric', 'value'],
+      ['cumulative_exports_usd', totalExport],
+      ['cumulative_imports_usd', totalImport],
+      ['export_growth_pct', growthMetrics.export_growth_pct ?? ''],
+      ['import_growth_pct', growthMetrics.import_growth_pct ?? ''],
+      ['leading_exporter', metrics.topExporter],
+      ...topCountries.exports.slice(0, 5).map((country, index) => [
+        `top_exporter_${index + 1}_${country.country_or_area}`,
+        country.total_export,
+      ]),
+    ];
+    const csv = rows
+      .map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'trade8-dashboard-summary.csv';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
 
-  if (loading) {
-    return (
-      <div className="loading-screen">
-        <div className="spinner"></div>
-        <p className="loading-text">Loading Analytics Workspace...</p>
-        <p className="loading-subtext">Connecting to {API_URL}</p>
-      </div>
-    );
-  }
+  if (loading) return <LoadingScreen />;
 
   return (
-    <div className="app-layout">
-      <Sidebar
+    <div className="app-shell">
+      <AppHeader
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
+        onNavigate={setActiveTab}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
+        refreshing={refreshing}
+        onRefresh={() => fetchData()}
+        onExport={exportSummary}
       />
 
-      <main className="main-content">
-        <header className="topbar">
-          <div className="topbar-left">
-            <p className="page-eyebrow">SDG 8 · Decent Work &amp; Economic Growth</p>
-            <h1 className="page-title">{pageTitles[activeTab]}</h1>
-          </div>
-          <div className="topbar-right">
-            {analyticsTab && (
-              <button className="btn-secondary" onClick={fetchData}>
-                <RefreshCw size={13} style={{ marginRight: '5px' }} />
-                Refresh
-              </button>
-            )}
-            <button className="btn-primary">
-              <FileText size={13} style={{ marginRight: '5px' }} />
-              Export
-            </button>
-          </div>
-        </header>
+      <main className="dashboard-main">
+        <PageIntro activeTab={activeTab} />
+        {error && <ErrorBanner message={error} onRetry={() => fetchData()} />}
 
-        <div className="dashboard-content">
-          {error && analyticsTab && (
-            <ErrorBanner message={error} onRetry={fetchData} />
-          )}
-
-          {analyticsTab && (
-            <div className="stats-grid">
-              <StatCard
-                title="Total Global Exports"
-                value={`$${totalExport.toFixed(2)}T`}
-                icon={TrendingUp}
-                trendValue={growthMetrics.export_growth_pct}
-                description="Growth: 2000s → 2010s"
-              />
-              <StatCard
-                title="Total Global Imports"
-                value={`$${totalImport.toFixed(2)}T`}
-                icon={DollarSign}
-                trendValue={growthMetrics.import_growth_pct}
-                description="Growth: 2000s → 2010s"
-              />
-              <StatCard
-                title="Largest Exporter"
-                value={topExporter}
-                icon={Globe}
-                trendValue="Rank #1"
-                description="Cumulative historical total"
-              />
-              <StatCard
-                title="Commodity Categories"
-                value="97"
-                icon={Box}
-                trendValue="100"
-                description="Actively tracked"
-              />
-            </div>
-          )}
-
-          {activeTab === 'overview'    && <OverviewTab yearChartData={yearChartData} pieData={pieData} />}
-          {activeTab === 'geopolitics' && <GeopoliticsTab allCountriesTrade={allCountriesTrade} />}
-          {activeTab === 'commodities' && <CommoditiesTab topCommodities={topCommodities} />}
-          {activeTab === 'datasources' && <DataSourcesTab />}
-          {activeTab === 'settings'    && <SettingsTab />}
-        </div>
+        {activeTab === 'overview' && (
+          <OverviewTab
+            yearChartData={yearChartData}
+            categoryData={categoryData}
+            topCountries={topCountries}
+            metrics={metrics}
+          />
+        )}
+        {activeTab === 'geopolitics' && <TradeMapTab allCountriesTrade={allCountriesTrade} />}
+        {activeTab === 'commodities' && <CommoditiesTab topCommodities={topCommodities} />}
+        {activeTab === 'datasources' && <DataPipelineTab />}
+        {activeTab === 'about' && <AboutTab />}
       </main>
 
-      {/* Mobile sidebar toggle */}
-      <button
-        className="sidebar-toggle"
-        onClick={() => setSidebarOpen(s => !s)}
-        aria-label="Toggle navigation"
-      >
-        <LayoutDashboard size={20} />
-      </button>
+      <footer className="app-footer">
+        <span>Trade8 · SDG 8 Global Trade Analytics</span>
+        <span>UN Comtrade · Read-only public data</span>
+      </footer>
     </div>
   );
 }

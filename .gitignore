@@ -4,6 +4,8 @@
 
 # Mengabaikan virtual environment
 airflow-env/
+.venv/
+.uv-cache/
 
 # Mengabaikan file sistem dan cache Python
 .DS_Store

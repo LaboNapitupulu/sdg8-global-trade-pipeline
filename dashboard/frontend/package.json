@@ -15,7 +15,6 @@
     "prop-types": "^15.8.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-google-charts": "^5.2.1",
     "react-is": "^19.2.8",
     "react-simple-maps": "^3.0.0",
     "react-tooltip": "^6.0.8",
