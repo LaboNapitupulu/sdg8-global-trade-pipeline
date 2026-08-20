@@ -28,8 +28,8 @@ def run_medallion_pipeline():
     # 2. SILVER LAYER (Pembersihan & Standarisasi)
     print("[2/3] Memproses data di Silver Layer...")
     
-    # Filter hanya untuk ekspor
-    silver_df = bronze_df.filter(lower(col("flow")).contains("export"))
+    # Filter hanya untuk ekspor (gunakan cache untuk optimisasi DAG)
+    silver_df = bronze_df.filter(lower(col("flow")) == "export").cache()
     total_export_raw = silver_df.count()
 
     # Membersihkan nilai kosong secara transparan (Mitigasi Etis)

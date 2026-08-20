@@ -35,8 +35,12 @@ def run_pandas_pipeline():
     print("\n[1/3] Mengekstraksi data dari Bronze Layer (File Lokal)...")
     print(f"      Memuat: {file_path}")
 
-    # Pandas memuat SELURUH baris ke dalam RAM sekaligus (Single-Thread)
-    bronze_df = pd.read_csv(file_path, low_memory=False)
+    # Pandas memuat SELURUH baris ke dalam RAM, dioptimisasi dengan usecols
+    bronze_df = pd.read_csv(
+        file_path, 
+        low_memory=False,
+        usecols=['country_or_area', 'year', 'commodity', 'flow', 'trade_usd', 'weight_kg']
+    )
 
     total_rows_bronze = len(bronze_df)
     print("      Total baris awal (Bronze): {:,}".format(total_rows_bronze))
