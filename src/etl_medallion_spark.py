@@ -1,93 +1,103 @@
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lower, initcap, sum as _sum, round as _round
+"""Spark implementation of the same Export HS-detail contract as Pandas."""
+
+from __future__ import annotations
+
 import time
 
-def run_medallion_pipeline():
-    print("=== MEMULAI PIPELINE MEDALLION ARCHITECTURE (SPARK) ===")
-    start_time = time.time()
-
-    # Inisialisasi Spark Session dengan dukungan Hive Terpusat
-    spark = SparkSession.builder \
-        .appName("SDG8_Global_Trade_Medallion") \
-        .config("spark.sql.warehouse.dir", "hdfs://namenode:9000/user/hive/warehouse") \
-        .config("hive.metastore.uris", "thrift://hive-metastore:9083") \
-        .enableHiveSupport() \
-        .getOrCreate()
-
-    # Pastikan database Hive tersedia
-    spark.sql("CREATE DATABASE IF NOT EXISTS trade_db")
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, count, lower, sum as sum_, trim, upper, when
+from pyspark.sql.types import DoubleType, IntegerType, LongType, StringType, StructField, StructType
 
 
-    # 1. BRONZE LAYER (Membaca Data Mentah dari HDFS)
-    print("[1/3] Mengekstraksi data dari Bronze Layer HDFS...")
-    bronze_df = spark.read.csv("hdfs://namenode:9000/data/bronze/trade/trade_data.csv", header=True, inferSchema=True)
-    
-    total_rows_bronze = bronze_df.count()
-    print("      Total baris awal (Bronze): {}".format(total_rows_bronze))
-
-    # 2. SILVER LAYER (Pembersihan & Standarisasi)
-    print("[2/3] Memproses data di Silver Layer...")
-    
-    # Filter hanya untuk ekspor (gunakan cache untuk optimisasi DAG)
-    silver_df = bronze_df.filter(lower(col("flow")) == "export").cache()
-    total_export_raw = silver_df.count()
-
-    # Membersihkan nilai kosong secara transparan (Mitigasi Etis)
-    silver_df = silver_df.dropna(subset=["weight_kg", "trade_usd"])
-    
-    # Standarisasi teks nama negara
-    silver_df = silver_df.withColumn("country_or_area", initcap(lower(col("country_or_area"))))
-    
-    total_rows_silver = silver_df.count()
-    rows_dropped = total_export_raw - total_rows_silver
-    # Casting float untuk mencegah error pembagian integer di Python 2/3 lama
-    percentage_dropped = (rows_dropped / float(total_export_raw)) * 100 if total_export_raw > 0 else 0
-
-    print("      Total baris bersih (Silver): {}".format(total_rows_silver))
-
-    # 3. GOLD LAYER (Agregasi Bisnis & Metrik)
-    print("[3/3] Membangun tabel analitik di Gold Layer Hive...")
-
-    # GOLD TABLE 1: Tren Ekspor Global
-    gold_trends_df = silver_df.groupBy("year", "country_or_area", "commodity") \
-        .agg(
-            _sum("trade_usd").alias("total_nilai_ekspor_usd"),
-            _sum("weight_kg").alias("total_volume_kg")
-        ).orderBy(col("year").desc(), col("total_nilai_ekspor_usd").desc())
-
-    # Menyimpan Gold Table 1 ke Apache Hive (Format Parquet)
-    gold_trends_df.write \
-        .mode("overwrite") \
-        .format("parquet") \
-        .saveAsTable("trade_db.gold_global_trends")
-
-    # GOLD TABLE 2: Metrik Transparansi Kualitas Data
-    metrics_data = [
-        ("Total Transaksi Ekspor Mentah", float(total_export_raw)),
-        ("Transaksi Lolos Uji Kualitas (Silver)", float(total_rows_silver)),
-        ("Transaksi Dihapus (Anomali)", float(rows_dropped)),
-        ("Persentase Data Hilang (%)", round(percentage_dropped, 2))
+SOURCE_SCHEMA = StructType(
+    [
+        StructField("country_or_area", StringType(), True),
+        StructField("year", IntegerType(), True),
+        StructField("comm_code", StringType(), True),
+        StructField("commodity", StringType(), True),
+        StructField("flow", StringType(), True),
+        StructField("trade_usd", LongType(), True),
+        StructField("weight_kg", DoubleType(), True),
+        StructField("quantity_name", StringType(), True),
+        StructField("quantity", DoubleType(), True),
+        StructField("category", StringType(), True),
     ]
-    metrics_columns = ["metrik", "nilai"]
-    gold_metrics_df = spark.createDataFrame(metrics_data, metrics_columns)
+)
 
-    # Menyimpan Gold Table 2 ke Apache Hive
-    gold_metrics_df.write \
-        .mode("overwrite") \
-        .format("parquet") \
-        .saveAsTable("trade_db.gold_data_quality")
 
-    # Menghitung Performa
-    end_time = time.time()
-    latency = end_time - start_time
-    throughput = total_rows_bronze / latency if latency > 0 else 0
+def run_medallion_pipeline() -> None:
+    print("=== SPARK MEDALLION PIPELINE ===")
+    started = time.perf_counter()
+    spark = (
+        SparkSession.builder.appName("SDG8_Global_Trade_Medallion")
+        .config("spark.sql.warehouse.dir", "hdfs://namenode:9000/user/hive/warehouse")
+        .config("hive.metastore.uris", "thrift://hive-metastore:9083")
+        .enableHiveSupport()
+        .getOrCreate()
+    )
 
-    print("\n=== PIPELINE SELESAI ===")
-    print("Latensi End-to-End : {:.2f} detik".format(latency))
-    print("Throughput         : {:,.2f} baris/detik".format(throughput))
-    print("Data telah tersimpan di Hive (trade_db) format Parquet.")
+    try:
+        spark.sql("CREATE DATABASE IF NOT EXISTS trade_db")
+        bronze = spark.read.csv(
+            "hdfs://namenode:9000/data/bronze/trade/trade_data.csv",
+            header=True,
+            schema=SOURCE_SCHEMA,
+        )
+        source_rows = bronze.count()
 
-    spark.stop()
+        raw_exports = bronze.filter(
+            (lower(trim(col("flow"))) == "export")
+            & (upper(trim(col("comm_code"))) != "TOTAL")
+        )
+        quality = raw_exports.agg(
+            count("*").alias("raw_export_rows"),
+            sum_(when(col("trade_usd").isNull(), 1).otherwise(0)).alias("missing_trade_value"),
+            sum_(when(col("weight_kg").isNull(), 1).otherwise(0)).alias("missing_weight"),
+        ).first()
+
+        silver = (
+            raw_exports.dropna(
+                subset=["year", "country_or_area", "comm_code", "commodity", "trade_usd"]
+            )
+            .filter(col("trade_usd") >= 0)
+            .withColumn("country_or_area", trim(col("country_or_area")))
+            .withColumn("commodity", trim(col("commodity")))
+            .withColumn("comm_code", upper(trim(col("comm_code"))))
+            .cache()
+        )
+        valid_export_rows = silver.count()
+
+        gold_trends = silver.groupBy("year", "country_or_area", "comm_code", "commodity").agg(
+            sum_("trade_usd").alias("total_nilai_ekspor_usd"),
+            sum_("weight_kg").alias("total_volume_kg"),
+        )
+        (
+            gold_trends.write.mode("overwrite")
+            .format("parquet")
+            .saveAsTable("trade_db.gold_global_trends")
+        )
+
+        metrics_data = [
+            ("Total source rows", float(source_rows)),
+            ("Raw HS-detail Export rows", float(quality.raw_export_rows)),
+            ("Valid Export rows", float(valid_export_rows)),
+            ("Rows missing trade value", float(quality.missing_trade_value)),
+            ("Rows missing weight (retained for value analysis)", float(quality.missing_weight)),
+        ]
+        (
+            spark.createDataFrame(metrics_data, ["metrik", "nilai"])
+            .write.mode("overwrite")
+            .format("parquet")
+            .saveAsTable("trade_db.gold_data_quality")
+        )
+        silver.unpersist()
+
+        latency = time.perf_counter() - started
+        print(f"Latency: {latency:.2f} seconds")
+        print(f"Throughput: {source_rows / latency:,.2f} rows/second")
+    finally:
+        spark.stop()
+
 
 if __name__ == "__main__":
     run_medallion_pipeline()

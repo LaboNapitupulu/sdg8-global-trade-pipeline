@@ -1,0 +1,2 @@
+-r requirements-etl.txt
+pyspark==3.5.1

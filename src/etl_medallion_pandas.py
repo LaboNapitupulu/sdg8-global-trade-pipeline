@@ -1,111 +1,138 @@
-import pandas as pd
+"""Memory-conscious Pandas implementation of the export medallion pipeline."""
+
+from __future__ import annotations
+
+import argparse
 import time
-import os
+from pathlib import Path
 
-def run_pandas_pipeline():
-    print("=== MEMULAI PIPELINE MEDALLION ARCHITECTURE (PANDAS) ===")
-    print("PERINGATAN: Memori RAM sedang bekerja keras. Jangan buka aplikasi berat...")
+import pandas as pd
 
-    # --- Path Resolution ---
-    # Menggunakan path relatif dari lokasi skrip ini agar bisa dijalankan dari mana saja
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, '..'))
-    file_path = os.path.join(REPO_ROOT, 'data', 'commodity_trade_statistics_data.csv')
 
-    if not os.path.exists(file_path):
-        print(f"ERROR: File dataset tidak ditemukan di:\n  {file_path}")
-        print("Pastikan file CSV berada di dalam folder 'data/' di root repositori.")
-        return
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_INPUT = BASE_DIR.parent / "data" / "commodity_trade_statistics_data.csv"
+DETAIL_COLUMNS = ["country_or_area", "year", "comm_code", "commodity", "flow", "trade_usd", "weight_kg"]
 
-    # --- Pengecekan Ketersediaan Memori ---
+
+def _compact(parts: list[pd.DataFrame]) -> list[pd.DataFrame]:
+    combined = pd.concat(parts, ignore_index=True)
+    compacted = combined.groupby(
+        ["year", "country_or_area", "comm_code", "commodity"],
+        as_index=False,
+        observed=True,
+    ).agg(
+        total_nilai_ekspor_usd=("total_nilai_ekspor_usd", "sum"),
+        total_volume_kg=("total_volume_kg", lambda values: values.sum(min_count=1)),
+    )
+    return [compacted]
+
+
+def run_pandas_pipeline(input_file: Path = DEFAULT_INPUT, chunk_size: int = 500_000) -> None:
+    if not input_file.exists():
+        raise FileNotFoundError(f"Dataset not found: {input_file}")
+
+    print("=== PANDAS MEDALLION PIPELINE ===")
+    print(f"Source: {input_file}")
     try:
         import psutil
+
         available_gb = psutil.virtual_memory().available / 1e9
-        print(f"RAM tersedia: {available_gb:.1f} GB")
-        if available_gb < 5.0:
-            print(f"PERINGATAN: RAM tersedia hanya {available_gb:.1f} GB. Risiko Out-of-Memory (OOM) sangat tinggi!")
-            print("Pertimbangkan untuk menutup aplikasi lain terlebih dahulu.")
+        print(f"Available RAM: {available_gb:.1f} GB")
     except ImportError:
-        print("(Info: Install 'psutil' untuk cek ketersediaan memori sebelum proses.)")
+        print("Install psutil for a pre-flight memory report.")
 
-    start_time = time.time()
-
-
-    # 1. BRONZE LAYER
-    print("\n[1/3] Mengekstraksi data dari Bronze Layer (File Lokal)...")
-    print(f"      Memuat: {file_path}")
-
-    # Pandas memuat SELURUH baris ke dalam RAM, dioptimisasi dengan usecols
-    bronze_df = pd.read_csv(
-        file_path, 
-        low_memory=False,
-        usecols=['country_or_area', 'year', 'commodity', 'flow', 'trade_usd', 'weight_kg']
-    )
-
-    total_rows_bronze = len(bronze_df)
-    print("      Total baris awal (Bronze): {:,}".format(total_rows_bronze))
-
-    # 2. SILVER LAYER
-    print("[2/3] Memproses data di Silver Layer...")
-
-    # Filter hanya untuk ekspor
-    silver_df = bronze_df[bronze_df['flow'].str.lower().str.contains('export', na=False)].copy()
-    total_export_raw = len(silver_df)
-
-    # Membersihkan nilai kosong
-    silver_df.dropna(subset=['weight_kg', 'trade_usd'], inplace=True)
-
-    # Standarisasi teks nama negara
-    silver_df['country_or_area'] = silver_df['country_or_area'].str.title()
-
-    total_rows_silver = len(silver_df)
-    rows_dropped = total_export_raw - total_rows_silver
-    percentage_dropped = (rows_dropped / float(total_export_raw)) * 100 if total_export_raw > 0 else 0
-
-    print("      Total baris bersih (Silver): {:,}".format(total_rows_silver))
-
-    # 3. GOLD LAYER
-    print("[3/3] Membangun tabel analitik di Gold Layer...")
-
-    gold_trends_df = silver_df.groupby(['year', 'country_or_area', 'commodity'], as_index=False).agg(
-        total_nilai_ekspor_usd=('trade_usd', 'sum'),
-        total_volume_kg=('weight_kg', 'sum')
-    )
-
-    gold_trends_df.sort_values(by=['year', 'total_nilai_ekspor_usd'], ascending=[False, False], inplace=True)
-
-    # Simpan output ke direktori yang sama dengan skrip ini
-    output_trends = os.path.join(BASE_DIR, 'gold_global_trends_pandas.parquet')
-    output_quality = os.path.join(BASE_DIR, 'gold_data_quality_pandas.parquet')
-
-    gold_trends_df.to_parquet(output_trends, index=False)
-
-    metrics_data = {
-        "metrik": [
-            "Total Transaksi Ekspor Mentah",
-            "Transaksi Lolos Uji Kualitas (Silver)",
-            "Transaksi Dihapus (Anomali)",
-            "Persentase Data Hilang (%)"
-        ],
-        "nilai": [
-            float(total_export_raw),
-            float(total_rows_silver),
-            float(rows_dropped),
-            round(percentage_dropped, 2)
-        ]
+    started = time.perf_counter()
+    totals = {
+        "source_rows": 0,
+        "raw_export_rows": 0,
+        "valid_export_rows": 0,
+        "missing_trade_value": 0,
+        "missing_weight": 0,
     }
-    gold_metrics_df = pd.DataFrame(metrics_data)
-    gold_metrics_df.to_parquet(output_quality, index=False)
+    gold_parts: list[pd.DataFrame] = []
 
-    # Kalkulasi Performa
-    end_time = time.time()
-    latency = end_time - start_time
-    throughput = total_rows_bronze / latency if latency > 0 else 0
+    reader = pd.read_csv(
+        input_file,
+        chunksize=chunk_size,
+        usecols=DETAIL_COLUMNS,
+        dtype={
+            "country_or_area": "string",
+            "comm_code": "string",
+            "commodity": "string",
+            "flow": "string",
+        },
+    )
 
-    print("\n=== PIPELINE PANDAS SELESAI ===")
-    print("Latensi End-to-End : {:.2f} detik".format(latency))
-    print("Throughput         : {:,.2f} baris/detik".format(throughput))
-    print(f"Data telah tersimpan di:\n  {output_trends}\n  {output_quality}")
+    for chunk_number, chunk in enumerate(reader, start=1):
+        totals["source_rows"] += len(chunk)
+        chunk["flow"] = chunk["flow"].str.strip()
+        chunk["comm_code"] = chunk["comm_code"].str.strip().str.upper()
+        exports = chunk[chunk["flow"].eq("Export") & ~chunk["comm_code"].eq("TOTAL")].copy()
+        totals["raw_export_rows"] += len(exports)
+        totals["missing_trade_value"] += int(exports["trade_usd"].isna().sum())
+        totals["missing_weight"] += int(exports["weight_kg"].isna().sum())
+
+        exports.dropna(subset=["year", "country_or_area", "comm_code", "commodity", "trade_usd"], inplace=True)
+        exports = exports[exports["trade_usd"].ge(0)]
+        exports["country_or_area"] = exports["country_or_area"].str.strip()
+        exports["commodity"] = exports["commodity"].str.strip()
+        totals["valid_export_rows"] += len(exports)
+
+        partial = exports.groupby(
+            ["year", "country_or_area", "comm_code", "commodity"],
+            as_index=False,
+            observed=True,
+        ).agg(
+            total_nilai_ekspor_usd=("trade_usd", "sum"),
+            total_volume_kg=("weight_kg", lambda values: values.sum(min_count=1)),
+        )
+        gold_parts.append(partial)
+        if len(gold_parts) >= 6:
+            gold_parts = _compact(gold_parts)
+        print(f"  Chunk {chunk_number}: {totals['source_rows']:,} rows read")
+
+    if not gold_parts:
+        raise ValueError("No valid Export detail rows were found")
+    gold_trends = _compact(gold_parts)[0]
+    gold_trends.sort_values(
+        by=["year", "total_nilai_ekspor_usd"],
+        ascending=[False, False],
+        inplace=True,
+    )
+
+    output_trends = BASE_DIR / "gold_global_trends_pandas.parquet"
+    output_quality = BASE_DIR / "gold_data_quality_pandas.parquet"
+    gold_trends.to_parquet(output_trends, index=False)
+
+    quality = pd.DataFrame(
+        {
+            "metrik": [
+                "Total source rows",
+                "Raw HS-detail Export rows",
+                "Valid Export rows",
+                "Rows missing trade value",
+                "Rows missing weight (retained for value analysis)",
+            ],
+            "nilai": [float(value) for value in totals.values()],
+        }
+    )
+    quality.to_parquet(output_quality, index=False)
+
+    latency = time.perf_counter() - started
+    throughput = totals["source_rows"] / latency if latency else 0
+    print("=== PIPELINE COMPLETE ===")
+    print(f"Latency: {latency:.2f} seconds")
+    print(f"Throughput: {throughput:,.2f} rows/second")
+    print(f"Gold rows: {len(gold_trends):,}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument("--chunk-size", type=int, default=500_000)
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
-    run_pandas_pipeline()
+    args = parse_args()
+    run_pandas_pipeline(args.input, args.chunk_size)
