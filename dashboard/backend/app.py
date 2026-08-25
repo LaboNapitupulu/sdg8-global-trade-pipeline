@@ -1,240 +1,278 @@
+"""Read-only Flask API for the pre-aggregated Trade8 SQLite database."""
+
+from __future__ import annotations
+
+import os
+import sqlite3
+from contextlib import closing
+from pathlib import Path
+from statistics import fmean
+
 from flask import Flask, jsonify, make_response
 from flask_cors import CORS
-import sqlite3
-import pandas as pd
-import os
+from werkzeug.exceptions import HTTPException
+
+
+BASE_DIR = Path(__file__).resolve().parent
+DB_FILE = Path(os.getenv("TRADE8_DB_FILE", BASE_DIR / "trade_data.db")).resolve()
+DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("TRADE8_ALLOWED_ORIGINS", DEFAULT_ORIGINS).split(",")
+    if origin.strip()
+]
 
 app = Flask(__name__)
-# Izinkan semua origin agar bisa diakses dari localhost:5173 (Vite)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
-
-# Path database relatif terhadap lokasi file ini
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE = os.path.join(BASE_DIR, "trade_data.db")
+if ALLOWED_ORIGINS:
+    CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 
-# --- Global Error Handler ---
+@app.errorhandler(HTTPException)
+def handle_http_exception(error: HTTPException):
+    return jsonify({"error": error.name, "status": error.code}), error.code
+
+
 @app.errorhandler(Exception)
-def handle_exception(e):
-    """Mengembalikan JSON yang informatif untuk setiap error yang tidak tertangani."""
-    app.logger.error(f"Unhandled exception: {e}", exc_info=True)
-    return jsonify({"error": "Terjadi kesalahan internal.", "detail": str(e)}), 500
+def handle_unexpected_exception(error: Exception):
+    app.logger.exception("Unhandled API exception: %s", error)
+    return jsonify({"error": "Internal server error", "status": 500}), 500
 
 
-def get_db_connection():
-    """Membuat koneksi SQLite dengan validasi ketersediaan file DB."""
-    if not os.path.exists(DB_FILE):
-        raise FileNotFoundError(
-            f"Database tidak ditemukan di: {DB_FILE}. "
-            "Jalankan data_pipeline.py terlebih dahulu."
-        )
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
+def get_db_connection() -> sqlite3.Connection:
+    if not DB_FILE.is_file():
+        raise FileNotFoundError("Analytics database is unavailable")
+    uri = f"file:{DB_FILE.as_posix()}?mode=ro"
+    connection = sqlite3.connect(uri, uri=True, timeout=5)
+    connection.row_factory = sqlite3.Row
+    return connection
 
 
-def cached_response(data, max_age=300):
-    """Membungkus respons JSON dengan header caching (default: 5 menit)."""
+def fetch_all(query: str, parameters: tuple = ()) -> list[dict]:
+    with closing(get_db_connection()) as connection:
+        return [dict(row) for row in connection.execute(query, parameters).fetchall()]
+
+
+def cached_response(data, browser_max_age: int = 60, cdn_max_age: int = 300):
     response = make_response(jsonify(data))
-    response.headers['Cache-Control'] = f'public, max-age={max_age}'
+    response.headers["Cache-Control"] = (
+        f"public, max-age={browser_max_age}, s-maxage={cdn_max_age}, "
+        "stale-while-revalidate=86400"
+    )
     return response
 
 
-# --- API Endpoints ---
-
-@app.route('/api/trade-by-year')
+@app.get("/api/trade-by-year")
 def api_trade_by_year():
-    conn = get_db_connection()
-    query = """
-        SELECT year, flow, SUM(trade_usd) as total_trade
+    rows = fetch_all(
+        """
+        SELECT year, flow, trade_usd AS total_trade
         FROM trade_by_year_flow
         WHERE year >= 1990
-        GROUP BY year, flow
-        ORDER BY year ASC
-    """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-
-    years = sorted(df['year'].unique().tolist())
-    exports = []
-    imports = []
-
-    for year in years:
-        exp_val = df[(df['year'] == year) & (df['flow'] == 'Export')]['total_trade'].sum()
-        imp_val = df[(df['year'] == year) & (df['flow'] == 'Import')]['total_trade'].sum()
-        exports.append(float(exp_val) if pd.notnull(exp_val) else 0)
-        imports.append(float(imp_val) if pd.notnull(imp_val) else 0)
-
-    return cached_response({'years': years, 'exports': exports, 'imports': imports})
+        ORDER BY year, flow
+        """
+    )
+    by_year = {row["year"]: {} for row in rows}
+    for row in rows:
+        by_year[row["year"]][row["flow"]] = row["total_trade"]
+    years = sorted(by_year)
+    return cached_response(
+        {
+            "years": years,
+            "exports": [by_year[year].get("Export", 0) for year in years],
+            "imports": [by_year[year].get("Import", 0) for year in years],
+        }
+    )
 
 
-@app.route('/api/top-countries')
+@app.get("/api/top-countries")
 def api_top_countries():
-    conn = get_db_connection()
-    query_exp = """
-        SELECT country_or_area, SUM(trade_usd) as total_export
+    exports = fetch_all(
+        """
+        SELECT country_or_area, trade_usd AS total_export
         FROM top_countries
         WHERE flow = 'Export'
-        GROUP BY country_or_area
-        ORDER BY total_export DESC
+        ORDER BY trade_usd DESC
         LIMIT 10
-    """
-    df_exp = pd.read_sql_query(query_exp, conn)
-
-    query_imp = """
-        SELECT country_or_area, SUM(trade_usd) as total_import
+        """
+    )
+    imports = fetch_all(
+        """
+        SELECT country_or_area, trade_usd AS total_import
         FROM top_countries
         WHERE flow = 'Import'
-        GROUP BY country_or_area
-        ORDER BY total_import DESC
+        ORDER BY trade_usd DESC
         LIMIT 10
-    """
-    df_imp = pd.read_sql_query(query_imp, conn)
-    conn.close()
-
-    return cached_response({
-        'exports': df_exp.to_dict(orient='records'),
-        'imports': df_imp.to_dict(orient='records')
-    })
+        """
+    )
+    return cached_response({"exports": exports, "imports": imports})
 
 
-@app.route('/api/top-commodities')
+@app.get("/api/top-commodities")
 def api_top_commodities():
-    conn = get_db_connection()
-    query = """
-        SELECT commodity, category, SUM(trade_usd) as total_trade
-        FROM top_commodities
-        WHERE commodity != 'ALL COMMODITIES'
-        GROUP BY commodity, category
-        ORDER BY total_trade DESC
-        LIMIT 10
-    """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-    return cached_response(df.to_dict(orient='records'))
+    return cached_response(
+        fetch_all(
+            """
+            SELECT comm_code, commodity, category, trade_usd AS total_trade
+            FROM top_commodities
+            WHERE flow = 'Export'
+            ORDER BY trade_usd DESC
+            LIMIT 10
+            """
+        )
+    )
 
 
-@app.route('/api/trade-by-category')
+@app.get("/api/trade-by-category")
 def api_trade_by_category():
-    conn = get_db_connection()
-    query = """
-        SELECT category, SUM(trade_usd) as total_trade
+    rows = fetch_all(
+        """
+        SELECT category, SUM(trade_usd) AS total_trade
         FROM top_commodities
-        WHERE category != 'all_commodities'
+        WHERE flow = 'Export'
         GROUP BY category
         ORDER BY total_trade DESC
         LIMIT 8
-    """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-
-    df['category'] = df['category'].apply(
-        lambda x: ' '.join(x.split('_')[1:4]).title() + '...' if '_' in x else x.title()
+        """
     )
-    return cached_response(df.to_dict(orient='records'))
+    for row in rows:
+        _, _, label = row["category"].partition("_")
+        row["category"] = (label or row["category"]).replace("_", " ").title()
+    return cached_response(rows)
 
 
-@app.route('/api/export-import-ratio')
+@app.get("/api/export-import-ratio")
 def api_export_import_ratio():
-    conn = get_db_connection()
-    query = """
-        SELECT flow, SUM(trade_usd) as total_trade
-        FROM trade_by_year_flow
-        GROUP BY flow
-    """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-    return cached_response(df.to_dict(orient='records'))
+    return cached_response(
+        fetch_all(
+            """
+            SELECT flow, SUM(trade_usd) AS total_trade
+            FROM trade_by_year_flow
+            WHERE flow IN ('Export', 'Import')
+            GROUP BY flow
+            ORDER BY flow
+            """
+        )
+    )
 
 
-@app.route('/api/all-countries-trade')
+COUNTRY_NAME_MAP = {
+    "USA": "United States of America",
+    "Russian Federation": "Russia",
+    "Rep. of Korea": "South Korea",
+    "China, Hong Kong SAR": "Hong Kong",
+    "Viet Nam": "Vietnam",
+    "United Rep. of Tanzania": "Tanzania",
+    "Czech Rep.": "Czechia",
+    "Lao People's Dem. Rep.": "Laos",
+    "Brunei Darussalam": "Brunei",
+    "Iran (Islamic Rep. of)": "Iran",
+    "Dem. People's Rep. of Korea": "North Korea",
+    "Bolivia (Plurinational State of)": "Bolivia",
+    "Bosnia Herzegovina": "Bosnia and Herz.",
+    "Rep. of Moldova": "Moldova",
+    "Solomon Isds": "Solomon Is.",
+    "State of Palestine": "Palestine",
+    "Swaziland": "eSwatini",
+    "TFYR of Macedonia": "Macedonia",
+}
+
+
+@app.get("/api/all-countries-trade")
 def api_all_countries_trade():
-    conn = get_db_connection()
-    query = """
-        SELECT country_or_area, SUM(trade_usd) as total_trade
+    rows = fetch_all(
+        """
+        SELECT country_or_area, trade_usd AS total_trade
         FROM top_countries
         WHERE flow = 'Export'
-          AND country_or_area NOT IN ('EU-28', 'World', 'Other Asia, nes', 'So. African Customs Union')
-        GROUP BY country_or_area
-    """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-
-    # Normalisasi nama negara agar kompatibel dengan Google GeoChart
-    name_map = {
-        'USA': 'United States',
-        'Russian Federation': 'Russia',
-        'Rep. of Korea': 'South Korea',
-        'China, Hong Kong SAR': 'Hong Kong',
-        'Viet Nam': 'Vietnam',
-        'United Rep. of Tanzania': 'Tanzania',
-        'Czech Rep.': 'Czech Republic',
-        'Central African Rep.': 'Central African Republic',
-        'Dominican Rep.': 'Dominican Republic',
-        "Lao People's Dem. Rep.": 'Laos',
-        'Brunei Darussalam': 'Brunei',
-        'Iran (Islamic Rep. of)': 'Iran',
-        "Dem. People's Rep. of Korea": 'North Korea',
-        'Bolivia (Plurinational State of)': 'Bolivia',
-        "Côte d'Ivoire": 'Ivory Coast',
-    }
-    df['country_or_area'] = df['country_or_area'].replace(name_map)
-
-    data = dict(zip(df['country_or_area'], df['total_trade']))
-    return cached_response(data)
+        ORDER BY country_or_area
+        """
+    )
+    return cached_response(
+        {
+            COUNTRY_NAME_MAP.get(row["country_or_area"], row["country_or_area"]): row["total_trade"]
+            for row in rows
+        }
+    )
 
 
-@app.route('/api/growth-metrics')
+def annual_average_growth(rows: list[dict], flow: str) -> tuple[float | None, dict]:
+    baseline = [row for row in rows if row["flow"] == flow and 2000 <= row["year"] <= 2009]
+    recent = [row for row in rows if row["flow"] == flow and 2010 <= row["year"] <= 2019]
+    if not baseline or not recent:
+        return None, {"baseline_years": [], "recent_years": []}
+
+    baseline_average = fmean(row["trade_usd"] for row in baseline)
+    recent_average = fmean(row["trade_usd"] for row in recent)
+    growth = ((recent_average - baseline_average) / baseline_average) * 100 if baseline_average else None
+    return (
+        round(growth, 1) if growth is not None else None,
+        {
+            "baseline_years": [row["year"] for row in baseline],
+            "recent_years": [row["year"] for row in recent],
+        },
+    )
+
+
+@app.get("/api/growth-metrics")
 def api_growth_metrics():
-    """
-    Menghitung pertumbuhan Year-over-Year (YoY) antara dekade 2000-2009 vs 2010-2019.
-    Ini menggantikan nilai tren hardcoded di frontend.
-    """
-    conn = get_db_connection()
-    query = """
-        SELECT year, flow, SUM(trade_usd) as total_trade
+    rows = fetch_all(
+        """
+        SELECT year, flow, trade_usd
         FROM trade_by_year_flow
         WHERE year BETWEEN 2000 AND 2019
-        GROUP BY year, flow
-        ORDER BY year ASC
-    """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-
-    def pct_growth(df, flow, decade_a, decade_b):
-        """Hitung pertumbuhan dari dekade A ke dekade B."""
-        val_a = df[(df['year'].isin(decade_a)) & (df['flow'] == flow)]['total_trade'].sum()
-        val_b = df[(df['year'].isin(decade_b)) & (df['flow'] == flow)]['total_trade'].sum()
-        if val_a == 0:
-            return 0.0
-        return round(((val_b - val_a) / val_a) * 100, 1)
-
-    decade_2000s = list(range(2000, 2010))
-    decade_2010s = list(range(2010, 2020))
-
-    export_growth = pct_growth(df, 'Export', decade_2000s, decade_2010s)
-    import_growth = pct_growth(df, 'Import', decade_2000s, decade_2010s)
-
-    return cached_response({
-        'export_growth_pct': export_growth,
-        'import_growth_pct': import_growth,
-        'period': '2000s vs 2010s'
-    })
+        ORDER BY year, flow
+        """
+    )
+    export_growth, export_periods = annual_average_growth(rows, "Export")
+    import_growth, import_periods = annual_average_growth(rows, "Import")
+    recent_years = export_periods["recent_years"] or import_periods["recent_years"]
+    period = (
+        f"Annual average: 2000–2009 vs {min(recent_years)}–{max(recent_years)}"
+        if recent_years
+        else "Insufficient data"
+    )
+    return cached_response(
+        {
+            "export_growth_pct": export_growth,
+            "import_growth_pct": import_growth,
+            "period": period,
+            "method": "annual_average",
+            "years_compared": export_periods,
+        }
+    )
 
 
-@app.route('/api/health')
+@app.get("/api/metadata")
+def api_metadata():
+    return cached_response(
+        {row["key"]: row["value"] for row in fetch_all("SELECT key, value FROM pipeline_metadata")},
+        browser_max_age=300,
+        cdn_max_age=3600,
+    )
+
+
+@app.get("/api/health")
 def health_check():
-    """Endpoint health check untuk memverifikasi API dan DB berjalan."""
-    db_ok = os.path.exists(DB_FILE)
-    return jsonify({
-        "status": "ok" if db_ok else "degraded",
-        "database": "connected" if db_ok else "not found",
-        "db_path": DB_FILE
-    }), 200 if db_ok else 503
+    try:
+        with closing(get_db_connection()) as connection:
+            integrity = connection.execute("PRAGMA quick_check").fetchone()[0]
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            required = {
+                "trade_by_year_flow",
+                "top_countries",
+                "top_commodities",
+                "pipeline_metadata",
+            }
+            healthy = integrity == "ok" and required.issubset(tables)
+    except (OSError, sqlite3.Error):
+        healthy = False
+    return jsonify({"status": "ok" if healthy else "degraded"}), 200 if healthy else 503
 
 
-if __name__ == '__main__':
-    print(f"Starting UN Trade API...")
-    print(f"Database: {DB_FILE}")
-    print(f"DB exists: {os.path.exists(DB_FILE)}")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    app.run(debug=os.getenv("FLASK_DEBUG") == "1", host="127.0.0.1", port=5000)
