@@ -1,83 +1,159 @@
-# SDG 8 Global Trade Pipeline: Decent Work & Economic Growth
+# Trade8 — SDG 8 Global Trade Pipeline
 
-A full-stack data engineering pipeline and interactive dashboard analyzing global commodity trade statistics (1990-present) to support UN Sustainable Development Goal 8.
+Trade8 is a reproducible data pipeline and interactive dashboard for exploring UN Comtrade commodity trade data from 1988–2016. It combines grain-safe Pandas/Spark ETL, a read-only Flask/SQLite API, and a responsive React dashboard with an interactive 3D motion hero and local vector world map.
 
-**🌍 [Live Dashboard on Vercel](https://sdg8-global-trade-pipeline-bkef3fx9x-nowell.vercel.app/)** | **📊 [UN Comtrade Dataset (Kaggle)](https://www.kaggle.com/datasets/unitednations/global-commodity-trade-statistics)**
+![Trade8 dashboard](assets/executive-dashboard-sdg-8-global.jpg)
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square&logo=python)
-![Apache Spark](https://img.shields.io/badge/Apache_Spark-Data_Processing-E25A1C?style=flat-square&logo=apache-spark)
-![Pandas](https://img.shields.io/badge/Pandas-ETL-150458?style=flat-square&logo=pandas)
-![Flask](https://img.shields.io/badge/Flask-API-000000?style=flat-square&logo=flask)
-![React](https://img.shields.io/badge/React-Vite-61DAFB?style=flat-square&logo=react)
-![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?style=flat-square&logo=sqlite)
+## What is included
 
----
+- Grain-safe macro indicators built only from `TOTAL / ALL COMMODITIES` rows.
+- HS6 commodity rankings built only from detailed `Export` rows.
+- Aggregate reporting regions excluded from country rankings.
+- Annual-average growth comparisons that account for the incomplete 2010–2019 decade.
+- Memory-conscious Pandas ETL and an equivalent Spark/Hive path.
+- Small read-only Flask API backed by a pre-aggregated SQLite database.
+- React/Vite dashboard with resilient partial loading, lazy-loaded local map, downloadable summary, and reduced-motion support.
+- Automated API, pipeline, frontend, dependency, and Docker Compose checks in GitHub Actions.
 
-## Project Overview
+## Data contract
 
-This project analyzes the UN Global Commodity Trade Statistics dataset to uncover trends, growth metrics, and geopolitical trade dynamics. It features a Medallion Architecture (Bronze -> Silver -> Gold) data pipeline built with Apache Spark and Pandas, exposing insights through a lightning-fast Flask API, and visualized in a modern, interactive React dashboard.
+The source CSV contains overlapping analytical grains. Trade8 keeps them separate:
 
----
+| Indicator | Source grain | Flows | Exclusions |
+| --- | --- | --- | --- |
+| Annual trade and country ranking | `comm_code = TOTAL` | Export, Import | EU-28, World, Other Asia nes, SACU |
+| Commodity and category ranking | HS detail (`comm_code != TOTAL`) | Export | TOTAL rows and mirror imports |
 
-## Core Features
+This prevents `ALL COMMODITIES` from being added to its own HS6 components. The generated database includes a `pipeline_metadata` table documenting its schema version, build time, row counts, and grain definitions.
 
-- **Interactive Global Map:** A zoomable, drag-able world map highlighting trade volumes per country using a dynamic heatmap.
-- **Advanced Data Pipeline:** Implements the Medallion Architecture. Raw CSV data is ingested, cleaned, and aggregated into highly optimized `.parquet` and `.db` formats.
-- **Exploded 3D Pie Charts:** Analyzes category distributions without visual clutter, solving common z-fighting issues in web visualizations.
-- **Real-Time Analytics Dashboard:** A responsive, dark-mode React UI that fetches pre-computed data from the Flask API instantly.
-- **Vercel Ready:** Architected to be deployed directly to Vercel as a serverless monorepo (Frontend Vite + Backend Python).
+## Architecture
 
----
-
-## Technical Stack
-
-- **Data Processing:** Apache Spark (PySpark), Pandas
-- **Backend API:** Python, Flask, SQLite
-- **Frontend:** React, Vite, Recharts, React Simple Maps, React Google Charts
-- **Deployment:** Vercel (Serverless Functions)
-
----
-
-## Getting Started
-
-### Prerequisites
-- Python 3.9+
-- Node.js 18+
-
-### Installation & Setup
-
-**1. Clone the repository:**
-```bash
-git clone https://github.com/LaboNapitupulu/sdg8-global-trade-pipeline.git
-cd sdg8-global-trade-pipeline
+```text
+UN Comtrade CSV
+      │
+      ├── Pandas chunks ──> validated aggregates ──> SQLite ──> Flask API
+      │                                                        │
+      └── HDFS ──> Spark Silver ──> Parquet/Hive Gold          └── React/Vite
 ```
 
-**2. Process the Data (ETL):**
-Ensure your raw UN Comtrade dataset (`commodity_trade_statistics_data.csv`) is placed in the `data/` directory. Run the pipeline to generate Gold data and the SQLite database.
+## Prerequisites
+
+- Python 3.11 recommended
+- Node.js `^20.19.0` or `>=22.12.0`
+- Docker with Compose v2 for the optional Hadoop/Spark/Hive stack
+- The Kaggle [UN Comtrade dataset](https://www.kaggle.com/datasets/unitednations/global-commodity-trade-statistics)
+
+Place the extracted file at:
+
+```text
+data/commodity_trade_statistics_data.csv
+```
+
+## Local setup
+
+Create a virtual environment and install the API plus Pandas ETL dependencies:
+
 ```bash
-python src/etl_medallion_pandas.py
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+pip install -r dashboard/backend/requirements.txt -r requirements-etl.txt
+```
+
+Build the SQLite analytics database:
+
+```bash
 python dashboard/backend/data_pipeline.py
 ```
 
-**3. Start the Backend API:**
+Start the API:
+
 ```bash
-cd dashboard/backend
-pip install -r requirements.txt
-flask run --port=5000
+python dashboard/backend/app.py
 ```
 
-**4. Launch the Frontend Dashboard:**
-Open a new terminal window.
+In another terminal, start the dashboard:
+
 ```bash
 cd dashboard/frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+Open `http://localhost:5173`.
 
----
+Useful environment variables:
 
-## Vercel Deployment
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `TRADE8_DB_FILE` | Override the SQLite file used by the API | `dashboard/backend/trade_data.db` |
+| `TRADE8_ALLOWED_ORIGINS` | Comma-separated development CORS origins | localhost Vite origins |
+| `VITE_API_URL` | Override the frontend API base URL | `/api` in production |
 
-This project includes a native `vercel.json` configuration for zero-config deployments. Simply import this repository into Vercel, leave all settings as default, and Vercel will automatically build the React frontend and deploy the Flask API as Serverless Functions.
+## Pandas and Spark ETL
+
+Run the memory-conscious Pandas Gold pipeline:
+
+```bash
+python src/etl_medallion_pandas.py
+python src/cek_metrik.py --source pandas
+```
+
+For local PySpark, additionally install:
+
+```bash
+pip install -r requirements-spark.txt
+```
+
+For the containerized data platform:
+
+```bash
+docker compose config
+docker compose up -d
+docker cp data/commodity_trade_statistics_data.csv namenode:/tmp/trade_data.csv
+docker exec namenode hdfs dfs -mkdir -p /data/bronze/trade
+docker exec namenode hdfs dfs -put -f /tmp/trade_data.csv /data/bronze/trade/trade_data.csv
+docker exec spark-master spark-submit --master spark://spark-master:7077 /opt/trade8/src/etl_medallion_spark.py
+```
+
+Spark UI is available on `http://localhost:8080`; HDFS NameNode UI is on `http://localhost:9870`.
+
+## Verification
+
+```bash
+python -m unittest discover -s dashboard/backend/tests -v
+
+cd dashboard/frontend
+npm run lint
+npm run build
+npm audit --omit=dev
+
+cd ../..
+docker compose config --quiet
+```
+
+## API endpoints
+
+- `/api/trade-by-year`
+- `/api/top-countries`
+- `/api/top-commodities`
+- `/api/trade-by-category`
+- `/api/all-countries-trade`
+- `/api/growth-metrics`
+- `/api/metadata`
+- `/api/health`
+
+Successful analytical responses are browser/CDN cacheable. The health endpoint validates the database and does not expose filesystem paths.
+
+## Deployment
+
+`vercel.json` builds the Vite frontend and Flask serverless function from this monorepo. After importing the repository in Vercel, ensure Deployment Protection is disabled for the production domain if the dashboard must be publicly accessible.
+
+The repository's configured deployment URL is [sdg8-global-trade-pipeline-bkef3fx9x-nowell.vercel.app](https://sdg8-global-trade-pipeline-bkef3fx9x-nowell.vercel.app/). Its public accessibility depends on the Vercel project protection setting.
+
+## Data source and SDG context
+
+- [UN Comtrade](https://comtrade.un.org/)
+- [UN Sustainable Development Goal 8](https://sdgs.un.org/goals/goal8)
+
+Trade data is an indicator of economic activity, not a direct measurement of decent work. Interpret concentration and growth alongside labor, wage, productivity, and distributional indicators.

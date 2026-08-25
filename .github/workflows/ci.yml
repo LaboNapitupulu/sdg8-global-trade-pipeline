@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install API and ETL dependencies
+        run: pip install -r dashboard/backend/requirements.txt -r requirements-etl.txt
+      - name: Check Python syntax
+        run: python -m compileall -q dashboard/backend src
+      - name: Run API and pipeline tests
+        run: python -m unittest discover -s dashboard/backend/tests -v
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dashboard/frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: dashboard/frontend
+        run: npm ci
+      - name: Lint
+        working-directory: dashboard/frontend
+        run: npm run lint
+      - name: Build
+        working-directory: dashboard/frontend
+        run: npm run build
+      - name: Audit production dependencies
+        working-directory: dashboard/frontend
+        run: npm audit --omit=dev --audit-level=high
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker Compose
+        run: docker compose config --quiet

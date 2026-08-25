@@ -1,6 +1,7 @@
 # Mengabaikan file data berukuran masif
 *.csv
 *.parquet
+*.db.tmp
 
 # Mengabaikan virtual environment
 airflow-env/
@@ -11,6 +12,8 @@ airflow-env/
 .DS_Store
 __pycache__/
 *.pyc
+.coverage
+.pytest_cache/
 
 # Mengabaikan environment variables (berisi kredensial)
 .env
