@@ -1,16 +1,19 @@
-# React + Vite
+# Trade8 frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React/Vite dashboard for the Trade8 API.
 
-Currently, two official plugins are available:
+## Commands
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm ci
+npm run dev
+npm run lint
+npm run build
+npm run preview
+```
 
-## React Compiler
+Node.js `^20.19.0` or `>=22.12.0` is required by Vite 8.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+During local development the frontend requests `http://localhost:5000/api`. Set `VITE_API_URL` to override it. Production uses same-origin `/api` routes.
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+The world topology is bundled from `world-atlas`; no runtime CDN is required. The Trade map is lazy loaded, and the 3D motion hero automatically disables continuous motion when the operating system requests reduced motion.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -15,10 +15,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ComposableMap, Geographies, Geography, ZoomableGroup } from 'react-simple-maps';
-import { scaleLinear } from 'd3-scale';
-import { Tooltip as MapTooltip } from 'react-tooltip';
-import 'react-tooltip/dist/react-tooltip.css';
 import {
   Activity,
   ArrowDownRight,
@@ -47,10 +43,11 @@ import {
   Zap,
 } from 'lucide-react';
 import './index.css';
+import MotionGlobe from './components/MotionGlobe.jsx';
 
 const isProd = import.meta.env.PROD;
 const API_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:5000/api');
-const GEO_URL = 'https://unpkg.com/world-atlas@2.0.2/countries-110m.json';
+const TradeMapTab = lazy(() => import('./components/TradeMapTab.jsx'));
 
 const COLORS = ['#d8ff4f', '#80e7c5', '#ff9364', '#b39cff', '#61a8ff', '#f4d06f', '#ff7f9f', '#8bd36d'];
 
@@ -104,7 +101,7 @@ function formatPercent(value) {
   return `${number > 0 ? '+' : ''}${number.toFixed(1)}%`;
 }
 
-function AppHeader({ activeTab, onNavigate, menuOpen, setMenuOpen, refreshing, onRefresh, onExport }) {
+function AppHeader({ activeTab, onNavigate, menuOpen, setMenuOpen, refreshing, onRefresh, onExport, dataStatus }) {
   return (
     <header className="app-header">
       <div className="brand-lockup" aria-label="Trade8 home">
@@ -131,7 +128,7 @@ function AppHeader({ activeTab, onNavigate, menuOpen, setMenuOpen, refreshing, o
       </nav>
 
       <div className="header-actions">
-        <span className="connection-chip"><span className="status-dot" /> Live dataset</span>
+        <span className={`connection-chip ${dataStatus}`}><span className="status-dot" /> {dataStatus === 'healthy' ? 'Dataset ready' : 'Partial data'}</span>
         <button type="button" className="icon-button" onClick={onRefresh} aria-label="Refresh dashboard data">
           <RefreshCw size={16} className={refreshing ? 'spin' : ''} />
         </button>
@@ -153,8 +150,10 @@ function AppHeader({ activeTab, onNavigate, menuOpen, setMenuOpen, refreshing, o
   );
 }
 
-function PageIntro({ activeTab }) {
+function PageIntro({ activeTab, metadata }) {
   const copy = PAGE_COPY[activeTab];
+  const sourceRows = Number(metadata.source_rows);
+  const recordLabel = Number.isFinite(sourceRows) ? `${(sourceRows / 1e6).toFixed(1)}M records` : 'Validated records';
   return (
     <section className="page-intro">
       <div>
@@ -162,10 +161,13 @@ function PageIntro({ activeTab }) {
         <h1>{copy.title}</h1>
         <p className="intro-copy">{copy.description}</p>
       </div>
-      <div className="dataset-window">
-        <span>Dataset window</span>
-        <strong>1988—2016</strong>
-        <small>UN Comtrade · 8.2M records</small>
+      <div className="intro-visual">
+        <MotionGlobe />
+        <div className="dataset-window">
+          <span>Dataset window</span>
+          <strong>1988—2016</strong>
+          <small>UN Comtrade · {recordLabel}</small>
+        </div>
       </div>
     </section>
   );
@@ -235,14 +237,14 @@ function OverviewTab({ yearChartData, categoryData, topCountries, metrics }) {
           label="Cumulative exports"
           value={formatCompactUsd(metrics.totalExport)}
           trend={metrics.exportGrowth}
-          helper="2000s vs 2010s"
+          helper={metrics.growthPeriod}
           icon={TrendingUp}
         />
         <MetricCard
           label="Cumulative imports"
           value={formatCompactUsd(metrics.totalImport)}
           trend={metrics.importGrowth}
-          helper="2000s vs 2010s"
+          helper={metrics.growthPeriod}
           icon={CircleDollarSign}
         />
         <MetricCard
@@ -389,63 +391,6 @@ function OverviewTab({ yearChartData, categoryData, topCountries, metrics }) {
   );
 }
 
-function TradeMapTab({ allCountriesTrade }) {
-  const values = Object.values(allCountriesTrade);
-  const maxTrade = values.length ? Math.max(...values) : 1;
-  const colorScale = scaleLinear()
-    .domain([0, maxTrade * 0.18, maxTrade])
-    .range(['#242721', '#6e7e37', '#d8ff4f']);
-
-  return (
-    <section className="single-panel-layout">
-      <article className="dashboard-panel map-panel">
-        <PanelHeader
-          kicker="Geographic distribution"
-          title="Cumulative export intensity"
-          action={<span className="panel-chip"><Globe2 size={12} /> Scroll to zoom</span>}
-        />
-        <div className="map-stage">
-          {Object.keys(allCountriesTrade).length ? (
-            <ComposableMap projectionConfig={{ scale: 145 }} width={900} height={460}>
-              <ZoomableGroup zoom={1} minZoom={1} maxZoom={8} translateExtent={[[0, 0], [900, 460]]}>
-                <Geographies geography={GEO_URL}>
-                  {({ geographies }) =>
-                    geographies.map((geo) => {
-                      const name = geo.properties.name;
-                      const value = allCountriesTrade[name];
-                      return (
-                        <Geography
-                          key={geo.rsmKey}
-                          geography={geo}
-                          data-tooltip-id="trade-map-tooltip"
-                          data-tooltip-content={value ? `${name} · ${formatCompactUsd(value)}` : `${name} · No data`}
-                          style={{
-                            default: { fill: value ? colorScale(value) : '#20231e', outline: 'none', stroke: '#11130f', strokeWidth: 0.6 },
-                            hover: { fill: '#ffffff', outline: 'none', cursor: 'pointer' },
-                            pressed: { fill: '#d8ff4f', outline: 'none' },
-                          }}
-                        />
-                      );
-                    })
-                  }
-                </Geographies>
-              </ZoomableGroup>
-            </ComposableMap>
-          ) : (
-            <EmptyState message="Map data is not available." />
-          )}
-          <MapTooltip id="trade-map-tooltip" className="map-tooltip" />
-        </div>
-        <div className="map-legend">
-          <span>Lower value</span>
-          <span className="gradient-scale" />
-          <span>Higher value</span>
-        </div>
-      </article>
-    </section>
-  );
-}
-
 function CommodityTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const item = payload[0].payload;
@@ -537,7 +482,7 @@ function DataPipelineTab() {
       name: 'Silver',
       icon: Zap,
       title: 'Quality and standardization',
-      description: 'Null handling, flow filtering, country normalization, and typed trade measures.',
+      description: 'Exact flow filtering, explicit null metrics, HS-code preservation, and typed trade measures.',
       meta: 'Validated',
     },
     {
@@ -603,15 +548,15 @@ function DataPipelineTab() {
       </div>
 
       <article className="dashboard-panel schema-panel">
-        <PanelHeader kicker="Gold contract" title="Analytics schema" />
+        <PanelHeader kicker="Source contract" title="Grain-safe analytics schema" />
         <div className="schema-grid">
           {[
             ['country_or_area', 'string', 'Reporting economy'],
             ['year', 'integer', 'Reference period'],
             ['flow', 'string', 'Export or import'],
+            ['comm_code', 'string', 'Preserved HS6 code'],
             ['commodity', 'string', 'HS-based description'],
             ['trade_usd', 'float', 'Trade value in USD'],
-            ['weight_kg', 'float', 'Net traded weight'],
           ].map(([field, type, description]) => (
             <div className="schema-field" key={field}>
               <code>{field}</code>
@@ -707,6 +652,21 @@ function LoadingScreen() {
   );
 }
 
+async function fetchEndpoint(endpoint, forceRefresh = false) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(`${API_URL}/${endpoint}`, {
+      signal: controller.signal,
+      cache: forceRefresh ? 'reload' : 'default',
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return await response.json();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -716,6 +676,7 @@ function App() {
   const [tradeByCategory, setTradeByCategory] = useState([]);
   const [allCountriesTrade, setAllCountriesTrade] = useState({});
   const [growthMetrics, setGrowthMetrics] = useState({ export_growth_pct: null, import_growth_pct: null });
+  const [metadata, setMetadata] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -726,27 +687,29 @@ function App() {
     setError(null);
 
     try {
-      const endpoints = [
-        'trade-by-year',
-        'top-countries',
-        'top-commodities',
-        'trade-by-category',
-        'all-countries-trade',
-        'growth-metrics',
+      const definitions = [
+        ['trade-by-year', setTradeByYear],
+        ['top-countries', setTopCountries],
+        ['top-commodities', setTopCommodities],
+        ['trade-by-category', setTradeByCategory],
+        ['all-countries-trade', setAllCountriesTrade],
+        ['growth-metrics', setGrowthMetrics],
+        ['metadata', setMetadata],
       ];
-      const responses = await Promise.all(endpoints.map((endpoint) => fetch(`${API_URL}/${endpoint}`)));
-      const failed = responses.find((response) => !response.ok);
-      if (failed) throw new Error(`${failed.status} ${failed.statusText}`);
-      const [year, countries, commodities, categories, countriesTrade, growth] =
-        await Promise.all(responses.map((response) => response.json()));
-      setTradeByYear(year);
-      setTopCountries(countries);
-      setTopCommodities(commodities);
-      setTradeByCategory(categories);
-      setAllCountriesTrade(countriesTrade);
-      setGrowthMetrics(growth);
+      const results = await Promise.allSettled(
+        definitions.map(([endpoint]) => fetchEndpoint(endpoint, !initial)),
+      );
+      const failed = [];
+      results.forEach((result, index) => {
+        const [endpoint, update] = definitions[index];
+        if (result.status === 'fulfilled') update(result.value);
+        else failed.push(endpoint);
+      });
+      if (failed.length) {
+        setError(`Some datasets could not be refreshed: ${failed.join(', ')}.`);
+      }
     } catch (requestError) {
-      setError(`The analytics API is unavailable at ${API_URL}. ${requestError.message}`);
+      setError(`The analytics API could not be loaded. ${requestError.message}`);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -781,6 +744,7 @@ function App() {
     totalImport,
     exportGrowth: growthMetrics.export_growth_pct,
     importGrowth: growthMetrics.import_growth_pct,
+    growthPeriod: growthMetrics.period || 'Annual average comparison',
     topExporter: topCountries.exports[0]?.country_or_area || '—',
     categoryCount: tradeByCategory.length,
   };
@@ -824,10 +788,11 @@ function App() {
         refreshing={refreshing}
         onRefresh={() => fetchData()}
         onExport={exportSummary}
+        dataStatus={error ? 'partial' : 'healthy'}
       />
 
       <main className="dashboard-main">
-        <PageIntro activeTab={activeTab} />
+        <PageIntro activeTab={activeTab} metadata={metadata} />
         {error && <ErrorBanner message={error} onRetry={() => fetchData()} />}
 
         {activeTab === 'overview' && (
@@ -838,7 +803,11 @@ function App() {
             metrics={metrics}
           />
         )}
-        {activeTab === 'geopolitics' && <TradeMapTab allCountriesTrade={allCountriesTrade} />}
+        {activeTab === 'geopolitics' && (
+          <Suspense fallback={<div className="dashboard-panel tab-loading">Loading local map…</div>}>
+            <TradeMapTab allCountriesTrade={allCountriesTrade} />
+          </Suspense>
+        )}
         {activeTab === 'commodities' && <CommoditiesTab topCommodities={topCommodities} />}
         {activeTab === 'datasources' && <DataPipelineTab />}
         {activeTab === 'about' && <AboutTab />}
