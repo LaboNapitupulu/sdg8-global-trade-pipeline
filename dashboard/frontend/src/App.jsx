@@ -49,7 +49,7 @@ const isProd = import.meta.env.PROD;
 const API_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:5000/api');
 const TradeMapTab = lazy(() => import('./components/TradeMapTab.jsx'));
 
-const COLORS = ['#d8ff4f', '#80e7c5', '#ff9364', '#b39cff', '#61a8ff', '#f4d06f', '#ff7f9f', '#8bd36d'];
+const COLORS = ['#22C55E', '#38BDF8', '#F59E0B', '#8B5CF6', '#F43F5E', '#10B981', '#3B82F6', '#EAB308'];
 
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -275,12 +275,12 @@ function OverviewTab({ yearChartData, categoryData, topCountries, metrics }) {
               <AreaChart data={yearChartData} margin={{ top: 18, right: 8, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="exportFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#d8ff4f" stopOpacity={0.32} />
-                    <stop offset="100%" stopColor="#d8ff4f" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#22C55E" stopOpacity={0.32} />
+                    <stop offset="100%" stopColor="#22C55E" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="importFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#80e7c5" stopOpacity={0.2} />
-                    <stop offset="100%" stopColor="#80e7c5" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#38BDF8" stopOpacity={0.2} />
+                    <stop offset="100%" stopColor="#38BDF8" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="rgba(255,255,255,0.055)" vertical={false} />
@@ -288,8 +288,8 @@ function OverviewTab({ yearChartData, categoryData, topCountries, metrics }) {
                 <YAxis width={68} axisLine={false} tickLine={false} tick={{ fill: '#777a73', fontSize: 11 }} tickFormatter={(value) => `$${value}B`} />
                 <Tooltip content={<TradeTooltip />} />
                 <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, color: '#a7aaa2' }} />
-                <Area type="monotone" dataKey="Export" stroke="#d8ff4f" strokeWidth={2.4} fill="url(#exportFill)" dot={false} activeDot={{ r: 4, fill: '#d8ff4f', stroke: '#11130f', strokeWidth: 2 }} />
-                <Area type="monotone" dataKey="Import" stroke="#80e7c5" strokeWidth={2} fill="url(#importFill)" dot={false} />
+                <Area type="monotone" dataKey="Export" stroke="#22C55E" strokeWidth={2.4} fill="url(#exportFill)" dot={false} activeDot={{ r: 4, fill: '#22C55E', stroke: '#0F172A', strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="Import" stroke="#38BDF8" strokeWidth={2} fill="url(#importFill)" dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -428,7 +428,7 @@ function CommoditiesTab({ topCommodities }) {
                 <Tooltip cursor={{ fill: 'rgba(255,255,255,0.035)' }} content={<CommodityTooltip />} />
                 <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={18}>
                   {chartData.map((item, index) => (
-                    <Cell key={item.fullName} fill={index === 0 ? '#d8ff4f' : COLORS[(index + 1) % COLORS.length]} />
+                    <Cell key={item.fullName} fill={index === 0 ? '#22C55E' : COLORS[(index + 1) % COLORS.length]} />
                   ))}
                   <LabelList dataKey="value" position="right" formatter={(value) => `$${value.toFixed(1)}B`} fill="#8d9188" fontSize={10} />
                 </Bar>
